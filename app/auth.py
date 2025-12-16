@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -51,15 +51,28 @@ def create_access_token(payload: Dict[str, Any]) -> str:
 
 
 async def get_current_user(
-    x_telegram_initdata: Optional[str] = Header(None, alias="x-telegram-initdata"),
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> User:
     """Получить текущего пользователя из Telegram initData"""
-    if not x_telegram_initdata:
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Пробуем получить заголовок в разных вариантах регистра
+    init_data = (
+        request.headers.get("x-telegram-initdata") or
+        request.headers.get("X-Telegram-Initdata") or
+        request.headers.get("X-Telegram-InitData")
+    )
+    
+    if not init_data:
+        logger.warning(f"Missing x-telegram-initdata header. Available headers: {list(request.headers.keys())}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing x-telegram-initdata header")
     
+    logger.info(f"Received initData: {init_data[:50]}...")
+    
     try:
-        data = verify_telegram_init_data(x_telegram_initdata)
+        data = verify_telegram_init_data(init_data)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
     
