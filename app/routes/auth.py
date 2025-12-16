@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from .. import schemas
-from ..auth import create_access_token, verify_telegram_init_data
+from ..auth import create_access_token, get_current_user, verify_telegram_init_data
 from ..db import get_session
 from ..models import Admin, User
 
