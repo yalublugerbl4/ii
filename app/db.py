@@ -12,19 +12,20 @@ if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
 elif db_url.startswith("postgres://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
-# Убираем ssl параметры из URL, если есть (будем передавать через connect_args)
+# Убираем старые ssl параметры из URL, если есть
 import re
 db_url = re.sub(r'[?&]ssl=[^&]*', '', db_url)
 db_url = re.sub(r'[?&]sslmode=[^&]*', '', db_url)
 
-# Для asyncpg нужно передавать ssl через connect_args
-# Используем 'prefer' чтобы asyncpg сам решил, нужен ли SSL
+# Добавляем sslmode=prefer в URL для asyncpg
+separator = "&" if "?" in db_url else "?"
+db_url = f"{db_url}{separator}sslmode=prefer"
+
 engine = create_async_engine(
     db_url,
     echo=False,
     future=True,
-    pool_pre_ping=True,
-    connect_args={"ssl": True}  # Включаем SSL для подключения
+    pool_pre_ping=True
 )
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 
