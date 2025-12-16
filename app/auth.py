@@ -51,7 +51,7 @@ def create_access_token(payload: Dict[str, Any]) -> str:
 
 
 async def get_current_user(
-    x_telegram_initdata: Optional[str] = Header(None),
+    x_telegram_initdata: Optional[str] = Header(None, alias="x-telegram-initdata"),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     """Получить текущего пользователя из Telegram initData"""
