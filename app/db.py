@@ -18,12 +18,13 @@ db_url = re.sub(r'[?&]ssl=[^&]*', '', db_url)
 db_url = re.sub(r'[?&]sslmode=[^&]*', '', db_url)
 
 # Для asyncpg нужно передавать ssl через connect_args
+# Используем 'prefer' чтобы asyncpg сам решил, нужен ли SSL
 engine = create_async_engine(
     db_url,
     echo=False,
     future=True,
     pool_pre_ping=True,
-    connect_args={"ssl": False}  # Явно отключаем SSL для asyncpg
+    connect_args={"ssl": True}  # Включаем SSL для подключения
 )
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 
