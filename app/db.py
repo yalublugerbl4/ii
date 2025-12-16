@@ -12,15 +12,6 @@ if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
 elif db_url.startswith("postgres://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
-# Убираем старые ssl параметры из URL, если есть
-import re
-db_url = re.sub(r'[?&]ssl=[^&]*', '', db_url)
-db_url = re.sub(r'[?&]sslmode=[^&]*', '', db_url)
-
-# Добавляем sslmode=prefer в URL для asyncpg
-separator = "&" if "?" in db_url else "?"
-db_url = f"{db_url}{separator}sslmode=prefer"
-
 engine = create_async_engine(
     db_url,
     echo=False,
