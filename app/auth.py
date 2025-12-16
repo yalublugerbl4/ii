@@ -67,7 +67,11 @@ async def get_current_user(
         if init_data:
             logger.info("Using initData from query parameter (fallback)")
     
+    # Логируем для отладки
+    logger.info(f"initData from header: {bool(request.headers.get('x-telegram-initdata'))}")
+    logger.info(f"initData from query: {bool(request.query_params.get('initData'))}")
     logger.info(f"initData present: {bool(init_data)}, length: {len(init_data) if init_data else 0}")
+    logger.info(f"Query params: {dict(request.query_params)}")
     
     if not init_data:
         all_headers = dict(request.headers)
