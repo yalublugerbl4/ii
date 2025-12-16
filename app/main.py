@@ -9,13 +9,26 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title=settings.app_name)
 
-origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+# CORS configuration - как в "ии анализы 3.0" и "магазин"
+cors_origins = []
+if settings.cors_origins and settings.cors_origins != "*":
+    cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+elif settings.frontend_url:
+    cors_origins = [settings.frontend_url]
+
+# Всегда добавляем Telegram WebApp origin
+cors_origins.append('https://web.telegram.org')
+
+# Если origins пуст, разрешаем все (для разработки)
+final_origins = cors_origins if cors_origins else ['*']
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=final_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(auth.router)
