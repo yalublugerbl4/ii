@@ -2,7 +2,6 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .db import init_db
 from .routes import auth, generate, history, templates
 from .settings import settings
 
@@ -23,11 +22,6 @@ app.include_router(auth.router)
 app.include_router(templates.router)
 app.include_router(generate.router)
 app.include_router(history.router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
 
 
 @app.get("/health")
