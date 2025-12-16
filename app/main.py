@@ -15,7 +15,7 @@ app.add_middleware(
     allow_origins=origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "x-telegram-initdata", "*"],
 )
 
 app.include_router(auth.router)

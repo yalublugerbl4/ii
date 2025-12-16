@@ -51,32 +51,15 @@ def create_access_token(payload: Dict[str, Any]) -> str:
 
 
 async def get_current_user(
-    request: Request,
+    x_telegram_initdata: Optional[str] = Header(None),
     session: AsyncSession = Depends(get_session),
 ) -> User:
     """Получить текущего пользователя из Telegram initData"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    # Пробуем получить initData из заголовка
-    init_data = request.headers.get("x-telegram-initdata")
-    
-    # Если заголовка нет, пробуем получить из query параметра (fallback)
-    if not init_data:
-        init_data = request.query_params.get("initData")
-        if init_data:
-            logger.info("Using initData from query parameter (fallback)")
-    
-    if not init_data:
-        # Логируем все заголовки для отладки
-        all_headers = dict(request.headers)
-        logger.warning(f"Missing x-telegram-initdata header. Available headers: {list(all_headers.keys())}")
+    if not x_telegram_initdata:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing x-telegram-initdata header")
     
-    logger.info(f"Received initData: {init_data[:50]}...")
-    
     try:
-        data = verify_telegram_init_data(init_data)
+        data = verify_telegram_init_data(x_telegram_initdata)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
     
