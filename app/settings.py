@@ -15,10 +15,6 @@ class Settings(BaseSettings):
     kie_enable_fallback: bool = False
     kie_callback_url: str | None = None
     cors_origins: str = "*"
-    supabase_url: str
-    supabase_service_key: str
-    supabase_storage_bucket_uploads: str = "uploads"
-    supabase_storage_bucket_results: str = "results"
 
     class Config:
         env_file = ".env"

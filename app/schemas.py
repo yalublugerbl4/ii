@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class UserOut(BaseModel):
     tgid: int
+    balance: float = 0.0
 
 
 class TemplateOut(BaseModel):

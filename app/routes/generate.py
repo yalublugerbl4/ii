@@ -7,11 +7,26 @@ from sqlalchemy.future import select
 from .. import schemas
 from ..auth import get_current_user
 from ..db import get_session
-from ..models import Generation, Template
+from ..models import Generation, Template, User
 from ..services.kie import KieError, build_payload_for_model, create_task, extract_result_url, poll_task, upload_file_stream
 from ..settings import settings
 
 router = APIRouter(prefix="/generate", tags=["generate"])
+
+# Стоимость генерации по моделям (в монетах)
+MODEL_PRICES = {
+    "nanobanana": 5.0,
+    "nanobanana_pro": 10.0,
+    "seedream4": 8.0,
+    "seedream4.5": 10.0,
+    "gpt-4o": 12.0,
+    "flux2": 15.0,
+}
+
+
+def get_generation_price(model: str) -> float:
+    """Возвращает стоимость генерации для модели"""
+    return MODEL_PRICES.get(model, 10.0)
 
 
 @router.get("/models", response_model=list[schemas.ModelInfo])
@@ -75,6 +90,17 @@ async def generate_image(
             raise HTTPException(status_code=404, detail="Template not found")
         if template.default_prompt and not prompt:
             prompt = template.default_prompt
+    # Проверка баланса
+    price = get_generation_price(model)
+    result = await session.execute(select(User).where(User.tgid == user.tgid))
+    db_user = result.scalars().first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if float(db_user.balance) < price:
+        raise HTTPException(
+            status_code=402, detail=f"Insufficient balance. Required: {price}, available: {float(db_user.balance)}"
+        )
+    
     image_urls: list[str] = []
     for file in files:
         url = await upload_file_stream(file)
@@ -93,6 +119,9 @@ async def generate_image(
         task_id = await create_task(payload)
     except KieError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    
+    # Списание баланса после успешного создания задачи
+    db_user.balance = float(db_user.balance) - price
     gen = Generation(
         tgid=user.tgid,
         template_id=template.id if template else None,
@@ -106,6 +135,7 @@ async def generate_image(
     )
     session.add(gen)
     await session.commit()
+    await session.refresh(db_user)
     await session.refresh(gen)
     return {"generation_id": str(gen.id), "task_id": task_id, "status": gen.status}
 

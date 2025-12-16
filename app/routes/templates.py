@@ -6,7 +6,7 @@ from .. import schemas
 from ..auth import get_current_user, require_admin
 from ..db import get_session
 from ..models import Template
-from ..services.supabase import upload_file_public
+from ..services.kie import upload_file_stream
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -78,6 +78,12 @@ async def upload_preview(
     file: UploadFile,
     _: None = Depends(require_admin),
 ):
-    url = await upload_file_public(file, bucket="refs")
+    path = await upload_file_stream(file)
+    # KIE возвращает полный URL или относительный путь
+    if path.startswith("http"):
+        url = path
+    else:
+        from ..settings import settings
+        url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
     return {"url": url}
 

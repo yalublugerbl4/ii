@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -13,6 +13,7 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tgid = Column(BigInteger, unique=True, nullable=False, index=True)
+    balance = Column(Numeric(10, 2), default=0.0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

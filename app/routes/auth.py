@@ -10,6 +10,19 @@ from ..models import Admin, User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+@router.get("/me", response_model=schemas.UserOut)
+async def get_me(
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить текущего пользователя с балансом"""
+    result = await session.execute(select(User).where(User.tgid == user.tgid))
+    db_user = result.scalars().first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return schemas.UserOut(tgid=db_user.tgid, balance=float(db_user.balance))
+
+
 @router.post("/telegram", response_model=schemas.TelegramAuthResponse)
 async def auth_telegram(
     body: schemas.TelegramAuthRequest, session: AsyncSession = Depends(get_session)
@@ -39,9 +52,10 @@ async def auth_telegram(
     result = await session.execute(select(Admin).where(Admin.tgid == tgid))
     is_admin = result.scalars().first() is not None
     token = create_access_token({"tgid": tgid})
+    await session.refresh(user)
     return schemas.TelegramAuthResponse(
         accessToken=token,
-        user=schemas.UserOut(tgid=tgid),
+        user=schemas.UserOut(tgid=tgid, balance=float(user.balance)),
         isAdmin=is_admin,
     )
 
