@@ -12,6 +12,11 @@ if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
 elif db_url.startswith("postgres://") and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
 
+# Добавляем ssl='disable' если его нет в URL (для баз без SSL)
+if "ssl=" not in db_url and "sslmode=" not in db_url:
+    separator = "&" if "?" in db_url else "?"
+    db_url = f"{db_url}{separator}ssl=disable"
+
 engine = create_async_engine(
     db_url, echo=False, future=True, pool_pre_ping=True
 )
