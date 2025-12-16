@@ -66,10 +66,16 @@ async def get_payment_plans():
 
 @router.post("/create")
 async def create_payment(
-    body: dict,
+    request: Request,
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    """Создать платеж через ЮКассу"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
     plan_code = body.get("plan_code")
     if not plan_code:
         raise HTTPException(status_code=400, detail="plan_code is required")
@@ -89,7 +95,7 @@ async def create_payment(
     uid = user.tgid
     idem_key = str(uuid.uuid4())
     
-    body = {
+    yoo_body = {
         "amount": {"value": f"{amount_rub:.2f}", "currency": "RUB"},
         "capture": True,
         "confirmation": {
@@ -106,7 +112,7 @@ async def create_payment(
     }
     
     try:
-        yoo_payment = YooPayment.create(body, idem_key)
+        yoo_payment = YooPayment.create(yoo_body, idem_key)
     except ApiError as exc:
         raise HTTPException(status_code=400, detail=f"Payment creation failed: {yk_error_text(exc)}")
     except Exception as exc:
