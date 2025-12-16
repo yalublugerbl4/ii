@@ -1,10 +1,11 @@
 import hashlib
 import hmac
+import json
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -50,23 +51,37 @@ def create_access_token(payload: Dict[str, Any]) -> str:
 
 
 async def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(auth_scheme),
+    x_telegram_initdata: Optional[str] = Header(None, alias="x-telegram-initdata"),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    if creds is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Auth required")
-    token = creds.credentials
+    """Получить текущего пользователя из Telegram initData"""
+    if not x_telegram_initdata:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing x-telegram-initdata header")
+    
     try:
-        decoded = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    tgid = decoded.get("tgid")
-    if tgid is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        data = verify_telegram_init_data(x_telegram_initdata)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
+    
+    user_data = data.get("user")
+    if not user_data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user missing in initData")
+    
+    try:
+        tgid = int(user_data)
+    except Exception:
+        # Sometimes user is JSON string
+        parsed = json.loads(user_data)
+        tgid = int(parsed.get("id"))
+    
     result = await session.execute(select(User).where(User.tgid == tgid))
     user = result.scalars().first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        # Создаем пользователя, если его нет
+        user = User(tgid=tgid)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
     return user
 
 

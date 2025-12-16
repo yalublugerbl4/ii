@@ -23,6 +23,17 @@ async def get_me(
     return schemas.UserOut(tgid=db_user.tgid, balance=float(db_user.balance))
 
 
+@router.get("/check-admin")
+async def check_admin(
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Проверить, является ли пользователь админом"""
+    result = await session.execute(select(Admin).where(Admin.tgid == user.tgid))
+    is_admin = result.scalars().first() is not None
+    return {"isAdmin": is_admin}
+
+
 @router.post("/telegram", response_model=schemas.TelegramAuthResponse)
 async def auth_telegram(
     body: schemas.TelegramAuthRequest, session: AsyncSession = Depends(get_session)
