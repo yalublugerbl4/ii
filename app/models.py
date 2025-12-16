@@ -62,3 +62,17 @@ class Generation(Base):
 
     template = relationship("Template", back_populates="generations")
 
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tgid = Column(BigInteger, nullable=False, index=True)
+    yookassa_payment_id = Column(String(100), unique=True, nullable=True, index=True)
+    amount = Column(Numeric(10, 2), nullable=False)
+    tokens = Column(Numeric(10, 2), nullable=False)
+    status = Column(String(50), nullable=False, default="pending")
+    plan_code = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+

@@ -8,4 +8,5 @@ PyJWT==2.9.0
 python-multipart==0.0.9
 pydantic==2.9.2
 pydantic-settings==2.6.1
+yookassa>=3.0.0
 

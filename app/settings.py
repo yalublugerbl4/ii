@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     kie_enable_fallback: bool = False
     kie_callback_url: str | None = None
     cors_origins: str = "*"
+    yookassa_shop_id: str | None = None
+    yookassa_secret_key: str | None = None
+    frontend_url: str = "https://iiapp-66742.web.app"
 
     class Config:
         env_file = ".env"

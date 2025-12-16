@@ -72,3 +72,27 @@ CREATE TRIGGER update_generations_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Таблица платежей
+CREATE TABLE IF NOT EXISTS payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tgid BIGINT NOT NULL,
+    yookassa_payment_id VARCHAR(100) UNIQUE,
+    amount NUMERIC(10, 2) NOT NULL,
+    tokens NUMERIC(10, 2) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    plan_code VARCHAR(50),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_tgid ON payments(tgid);
+CREATE INDEX IF NOT EXISTS idx_payments_yookassa_id ON payments(yookassa_payment_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments(created_at DESC);
+
+-- Триггер для автоматического обновления updated_at в payments
+CREATE TRIGGER update_payments_updated_at
+    BEFORE UPDATE ON payments
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
