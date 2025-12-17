@@ -118,38 +118,56 @@ async def poll_task(task_id: str, is_gpt4o: bool = False) -> dict:
 
 
 def extract_result_url(record: dict) -> Optional[str]:
+    """Извлекает URL результата из ответа KIE API"""
     if not isinstance(record, dict):
+        logger.warning("extract_result_url: record is not a dict")
         return None
+    
+    logger.info(f"extract_result_url: searching in record keys: {list(record.keys())}")
+    
     data = record.get("data") or {}
     response = data.get("response") or data
+    
+    logger.info(f"extract_result_url: data keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
+    logger.info(f"extract_result_url: response keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
     
     # GPT-4o может возвращать результат в другом формате
     # Проверяем images массив
     images = response.get("images") or data.get("images")
     if isinstance(images, list) and len(images) > 0:
+        logger.info(f"extract_result_url: found images array with {len(images)} items")
         first_image = images[0]
         if isinstance(first_image, dict):
             url = first_image.get("url") or first_image.get("imageUrl")
             if isinstance(url, str) and url.startswith("http"):
+                logger.info(f"extract_result_url: found URL in images[0]: {url}")
                 return url
         elif isinstance(first_image, str) and first_image.startswith("http"):
+            logger.info(f"extract_result_url: found URL as string in images[0]: {first_image}")
             return first_image
     
     # Стандартные ключи
-    for key in ("resultUrl", "url", "imageUrl", "resultImageUrl", "image_url"):
-        val = response.get(key) or data.get(key)
+    for key in ("resultUrl", "url", "imageUrl", "resultImageUrl", "image_url", "result_url"):
+        val = response.get(key) or data.get(key) or record.get(key)
         if isinstance(val, str) and val.startswith("http"):
+            logger.info(f"extract_result_url: found URL in key '{key}': {val}")
             return val
     
-    result_json = response.get("resultJson")
+    # Проверяем вложенные структуры
+    result_json = response.get("resultJson") or data.get("resultJson")
     if isinstance(result_json, str):
         try:
             parsed = json.loads(result_json)
+            logger.info(f"extract_result_url: parsing resultJson string")
             return extract_result_url(parsed)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"extract_result_url: failed to parse resultJson: {e}")
             return None
     if isinstance(result_json, dict):
+        logger.info(f"extract_result_url: recursing into resultJson dict")
         return extract_result_url(result_json)
+    
+    logger.warning(f"extract_result_url: no URL found in response")
     return None
 
 

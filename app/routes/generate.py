@@ -1,3 +1,4 @@
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -234,16 +235,28 @@ async def poll_generation(
     if not gen.kie_task_id:
         raise HTTPException(status_code=400, detail="No task id")
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
     is_gpt4o = gen.model == "gpt4o-image"
+    logger.info(f"Polling task {gen.kie_task_id} for generation {gen.id}, is_gpt4o={is_gpt4o}")
     data = await poll_task(gen.kie_task_id, is_gpt4o=is_gpt4o)
+    logger.info(f"Poll response for task {gen.kie_task_id}: {json.dumps(data, indent=2, ensure_ascii=False)}")
     
     status = (data.get("data") or {}).get("status") or data.get("status")
     if status:
         gen.status = str(status).lower()
+        logger.info(f"Status updated to: {gen.status}")
+    
     url = extract_result_url(data)
+    logger.info(f"Extracted result URL: {url}")
     if url:
         gen.result_url = url
         gen.status = "done"
+        logger.info(f"Generation {gen.id} completed, result_url: {url}")
+    else:
+        logger.warning(f"No result URL found in response for task {gen.kie_task_id}")
+    
     await session.commit()
     await session.refresh(gen)
     return gen
