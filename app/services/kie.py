@@ -214,6 +214,7 @@ async def build_payload_for_model(
         }
     elif model == "google/nano-banana-edit":
         # NanoBanana Edit - точно как в bot.txt
+        # В bot.txt: output_format всегда "png", image_size маппится через size_map
         payload = {
             "model": model,
             "input": {
@@ -222,9 +223,11 @@ async def build_payload_for_model(
                 "image_size": image_size,
             },
         }
+        # image_urls добавляется только если есть изображения
         if image_urls_list:
             payload["input"]["image_urls"] = image_urls_list[:10]
             payload["input"]["mode"] = "edit"  # Добавляем mode только если есть image_urls
+        # Если нет image_urls, это text-to-image режим (без mode)
     elif model in ["flux2/pro-image-to-image", "flux2/flex-image-to-image"]:
         # Flux 2 Image-to-Image
         payload = {
