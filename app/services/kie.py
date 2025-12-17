@@ -169,14 +169,16 @@ def extract_result_url(record: dict) -> Optional[str]:
     
     # Проверяем вложенные структуры
     result_json = response.get("resultJson") or data.get("resultJson")
-    if isinstance(result_json, str):
+    if isinstance(result_json, str) and result_json.strip():
         try:
             parsed = json.loads(result_json)
             logger.info(f"extract_result_url: parsing resultJson string")
             return extract_result_url(parsed)
         except Exception as e:
-            logger.warning(f"extract_result_url: failed to parse resultJson: {e}")
+            logger.warning(f"extract_result_url: failed to parse resultJson: {e}, resultJson value: {result_json[:100] if result_json else 'empty'}")
             return None
+    elif isinstance(result_json, str) and not result_json.strip():
+        logger.info(f"extract_result_url: resultJson is empty string, skipping")
     if isinstance(result_json, dict):
         logger.info(f"extract_result_url: recursing into resultJson dict")
         return extract_result_url(result_json)

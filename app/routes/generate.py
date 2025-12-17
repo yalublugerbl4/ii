@@ -114,10 +114,34 @@ async def generate_image(
     import logging
     logger = logging.getLogger(__name__)
     
-    # Получаем файлы из request.form() напрямую
-    form = await request.form()
-    files_list = form.getlist("files")
-    files = [f for f in files_list if isinstance(f, UploadFile)]
+    # Получаем файлы напрямую из request.form()
+    files: List[UploadFile] = []
+    try:
+        form = await request.form()
+        logger.info(f"Form keys: {list(form.keys())}")
+        
+        # Пробуем получить файлы из разных полей (files, file, photo, image)
+        for field_name in ["files", "file", "photo", "image"]:
+            if field_name in form:
+                files_list = form.getlist(field_name)
+                logger.info(f"Files from form.getlist('{field_name}'): {len(files_list)}, types: {[type(f).__name__ for f in files_list]}")
+                for f in files_list:
+                    if isinstance(f, UploadFile) and f not in files:
+                        files.append(f)
+        
+        # Если не нашли, пробуем получить все UploadFile объекты из form
+        if not files:
+            for key in form.keys():
+                files_list = form.getlist(key)
+                for f in files_list:
+                    if isinstance(f, UploadFile) and f not in files:
+                        files.append(f)
+                        logger.info(f"Found UploadFile in field '{key}': {f.filename}")
+        
+        logger.info(f"Got {len(files)} UploadFile objects from request.form()")
+    except Exception as e:
+        logger.error(f"Failed to get files from request.form(): {e}", exc_info=True)
+        files = []
     
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
     
