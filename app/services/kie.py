@@ -153,6 +153,20 @@ def extract_result_url(record: dict) -> Optional[str]:
             logger.info(f"extract_result_url: found URL in key '{key}': {val}")
             return val
     
+    # Проверяем resultUrls (множественное число) - массив URL
+    result_urls = response.get("resultUrls") or data.get("resultUrls") or record.get("resultUrls")
+    logger.info(f"extract_result_url: checking resultUrls, type: {type(result_urls)}, value: {result_urls}")
+    if isinstance(result_urls, list) and len(result_urls) > 0:
+        first_url = result_urls[0]
+        logger.info(f"extract_result_url: first_url from resultUrls: {first_url}, type: {type(first_url)}")
+        if isinstance(first_url, str) and first_url.startswith("http"):
+            logger.info(f"extract_result_url: found URL in resultUrls array: {first_url}")
+            return first_url
+        else:
+            logger.warning(f"extract_result_url: first_url is not a valid HTTP URL: {first_url}")
+    elif result_urls is not None:
+        logger.warning(f"extract_result_url: resultUrls is not a list: {type(result_urls)}")
+    
     # Проверяем вложенные структуры
     result_json = response.get("resultJson") or data.get("resultJson")
     if isinstance(result_json, str):
