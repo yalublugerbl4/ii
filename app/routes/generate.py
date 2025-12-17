@@ -2,7 +2,7 @@ import json
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -101,44 +101,25 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
-    request: Request,
+    prompt: str = Form(...),
+    model: str = Form(...),
+    aspect_ratio: Optional[str] = Form("auto"),
+    resolution: Optional[str] = Form(None),
+    output_format: str = Form("png"),
+    template_id: Optional[str] = Form(None),
+    files: List[UploadFile] = File(default=[]),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     import logging
     logger = logging.getLogger(__name__)
     
-    # Получаем все данные из form напрямую
-    form = await request.form()
-    logger.info(f"Form keys from request.form(): {list(form.keys())}")
-    
-    # Извлекаем текстовые поля
-    prompt = form.get("prompt", "")
-    model = form.get("model", "google/nano-banana-edit")
-    aspect_ratio = form.get("aspect_ratio", "auto")
-    resolution = form.get("resolution") or None
-    output_format = form.get("output_format", "png")
-    template_id = form.get("template_id") or None
-    
-    # Получаем файлы из form
-    files_list: List[UploadFile] = []
-    files_values = form.getlist("files")
-    logger.info(f"Files from form.getlist('files'): {len(files_values)} values")
-    
-    for idx, value in enumerate(files_values):
-        logger.info(f"Value {idx} type: {type(value).__name__}, value: {value}")
-        if isinstance(value, UploadFile):
-            files_list.append(value)
-            logger.info(f"Added UploadFile {idx}: filename={value.filename}, content_type={value.content_type}")
-        else:
-            logger.warning(f"Value {idx} is not UploadFile: {type(value)}")
-    
-    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}")
+    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
     
     # Логируем информацию о файлах
-    if files_list:
-        for idx, file in enumerate(files_list):
-            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}")
+    if files:
+        for idx, file in enumerate(files):
+            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}, size={file.size if hasattr(file, 'size') else 'unknown'}")
     else:
         logger.warning("No files received in request!")
     
@@ -162,8 +143,8 @@ async def generate_image(
         )
     
     image_urls: list[str] = []
-    if files_list:
-        for idx, file in enumerate(files_list):
+    if files:
+        for idx, file in enumerate(files):
             logger.info(f"Uploading file {idx}: {file.filename}")
             try:
                 url = await upload_file_stream(file)
