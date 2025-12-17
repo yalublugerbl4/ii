@@ -2,7 +2,7 @@ import json
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -121,6 +121,7 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
+    request: Request,
     prompt: str = Form(...),
     model: str = Form(...),
     aspect_ratio: Optional[str] = Form("auto"),
@@ -134,17 +135,24 @@ async def generate_image(
     import logging
     logger = logging.getLogger(__name__)
     
+    # Получаем image_urls из form напрямую (для списка строк нужно использовать getlist)
+    form = await request.form()
+    image_urls_list = form.getlist("image_urls")
+    
     # Нормализуем files - если None, делаем пустой список
     files_list = files if files else []
     
-    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}")
+    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}, image_urls_count={len(image_urls_list)}")
     
     # Логируем информацию о файлах
     if files_list:
         for idx, file in enumerate(files_list):
             logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}, size={file.size if hasattr(file, 'size') else 'unknown'}")
-    else:
-        logger.warning("No files received in request!")
+    
+    # Логируем image_urls если они переданы
+    if image_urls_list:
+        for idx, url in enumerate(image_urls_list):
+            logger.info(f"Image URL {idx}: {url}")
     
     template = None
     if template_id:
@@ -165,34 +173,38 @@ async def generate_image(
             status_code=402, detail=f"Insufficient balance. Required: {price}, available: {float(db_user.balance)}"
         )
     
-    image_urls: list[str] = []
-    if files_list:
+    # Используем переданные image_urls или загружаем файлы
+    final_image_urls: list[str] = []
+    
+    if image_urls_list:
+        # Используем уже загруженные URL
+        final_image_urls = list(image_urls_list)
+        logger.info(f"Using provided image_urls: {len(final_image_urls)} URLs")
+    elif files_list:
+        # Загружаем файлы
         for idx, file in enumerate(files_list):
             logger.info(f"Uploading file {idx}: {file.filename}")
             try:
                 url = await upload_file_stream(file)
-                image_urls.append(url)
+                final_image_urls.append(url)
                 logger.info(f"File {idx} uploaded successfully: {url}")
             except Exception as e:
                 logger.error(f"Failed to upload file {idx}: {e}", exc_info=True)
                 raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
     else:
-        logger.warning("No files provided in request")
+        logger.warning("No files or image_urls provided in request")
     
-    logger.info(f"Total uploaded image URLs: {len(image_urls)}")
-    
-    import logging
-    logger = logging.getLogger(__name__)
+    logger.info(f"Total image URLs: {len(final_image_urls)}")
     
     try:
-        logger.info(f"Building payload for model: {model}, prompt length: {len(prompt)}, image_urls count: {len(image_urls)}")
+        logger.info(f"Building payload for model: {model}, prompt length: {len(prompt)}, image_urls count: {len(final_image_urls)}")
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             output_format=output_format,
-            image_urls=image_urls,
+            image_urls=final_image_urls,
         )
         logger.info(f"Payload built, is_gpt4o: {is_gpt4o}")
         
