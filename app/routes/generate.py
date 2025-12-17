@@ -143,7 +143,11 @@ async def generate_image(
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"KIE error: {exc}")
-        raise HTTPException(status_code=400, detail=str(exc))
+        # Если ошибка содержит код 422, возвращаем 422, иначе 400
+        error_str = str(exc)
+        if "422" in error_str or "code 422" in error_str.lower() or "validation" in error_str.lower():
+            raise HTTPException(status_code=422, detail=error_str)
+        raise HTTPException(status_code=400, detail=error_str)
     except Exception as exc:
         import logging
         logger = logging.getLogger(__name__)
