@@ -107,18 +107,21 @@ async def generate_image(
     resolution: Optional[str] = Form(None),
     output_format: str = Form("png"),
     template_id: Optional[str] = Form(None),
-    files: List[UploadFile] = File(default=[]),
+    files: Optional[List[UploadFile]] = File(None),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     import logging
     logger = logging.getLogger(__name__)
     
-    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files) if files else 0}")
+    # Нормализуем files - если None, делаем пустой список
+    files_list = files if files else []
+    
+    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}")
     
     # Логируем информацию о файлах
-    if files:
-        for idx, file in enumerate(files):
+    if files_list:
+        for idx, file in enumerate(files_list):
             logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}")
     else:
         logger.warning("No files received in request!")
@@ -143,8 +146,8 @@ async def generate_image(
         )
     
     image_urls: list[str] = []
-    if files:
-        for idx, file in enumerate(files):
+    if files_list:
+        for idx, file in enumerate(files_list):
             logger.info(f"Uploading file {idx}: {file.filename}")
             try:
                 url = await upload_file_stream(file)
