@@ -122,13 +122,6 @@ async def generate_image(
         url = await upload_file_stream(file)
         image_urls.append(url)
     
-    # Проверка обязательных полей для моделей
-    if model == "google/nano-banana-edit" and not image_urls:
-        raise HTTPException(
-            status_code=422, 
-            detail="google/nano-banana-edit requires at least one image. Please upload images."
-        )
-    
     try:
         payload, is_gpt4o = await build_payload_for_model(
             model=model,

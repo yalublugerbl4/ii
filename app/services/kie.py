@@ -210,20 +210,18 @@ async def build_payload_for_model(
             "input": payload_input,
         }
     elif model == "google/nano-banana-edit":
-        # NanoBanana Edit - требует prompt и image_urls (обязательно)
-        # Согласно документации: required: prompt, image_urls
-        if not image_urls_list:
-            raise KieError("google/nano-banana-edit requires at least one image_url")
-        
+        # NanoBanana Edit - точно как в bot.txt
         payload = {
             "model": model,
             "input": {
                 "prompt": prompt[:5000],
-                "image_urls": image_urls_list[:10],  # До 10 изображений, обязательно
-                "output_format": output_format or "png",
+                "output_format": "png",  # Всегда "png" как в bot.txt
                 "image_size": image_size,
             },
         }
+        if image_urls_list:
+            payload["input"]["image_urls"] = image_urls_list[:10]
+            payload["input"]["mode"] = "edit"  # Добавляем mode только если есть image_urls
     elif model in ["flux2/pro-image-to-image", "flux2/flex-image-to-image"]:
         # Flux 2 Image-to-Image
         payload = {
