@@ -300,10 +300,15 @@ async def proxy_image(
     user=Depends(get_current_user),
 ):
     """Прокси для скачивания изображений (обход CORS)"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.info(f"Proxying image from: {url}")
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
+            
             # Определяем расширение из URL или content-type
             content_type = resp.headers.get("content-type", "image/png")
             ext = "png"
@@ -311,46 +316,31 @@ async def proxy_image(
                 ext = "jpg"
             elif "png" in content_type:
                 ext = "png"
+            elif "webp" in content_type:
+                ext = "webp"
+            
+            # Определяем имя файла из URL если возможно
+            filename = "generated-image"
+            if "/" in url:
+                url_filename = url.split("/")[-1].split("?")[0]
+                if "." in url_filename:
+                    filename = url_filename.rsplit(".", 1)[0]
+            
+            logger.info(f"Proxying image: content_type={content_type}, ext={ext}, size={len(resp.content)} bytes")
             
             return Response(
                 content=resp.content,
                 media_type=content_type,
                 headers={
-                    "Content-Disposition": f'attachment; filename="generated-image.{ext}"',
+                    "Content-Disposition": f'attachment; filename="{filename}.{ext}"',
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Expose-Headers": "Content-Disposition",
+                    "Content-Length": str(len(resp.content)),
                 },
             )
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to proxy image: {e}")
+        logger.error(f"Failed to proxy image from {url}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
 
 
-@router.get("/proxy-image")
-async def proxy_image(
-    url: str,
-    user=Depends(get_current_user),
-):
-    """Прокси для скачивания изображений (обход CORS)"""
-    import httpx
-    try:
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            from fastapi.responses import Response
-            return Response(
-                content=resp.content,
-                media_type=resp.headers.get("content-type", "image/png"),
-                headers={
-                    "Content-Disposition": f'inline; filename="image.png"',
-                    "Access-Control-Allow-Origin": "*",
-                },
-            )
-    except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to proxy image: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
 
