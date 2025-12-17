@@ -111,6 +111,14 @@ async def generate_image(
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
+    
+    # Логируем информацию о файлах
+    if files:
+        for idx, file in enumerate(files):
+            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}, size={file.size if hasattr(file, 'size') else 'unknown'}")
+    else:
+        logger.warning("No files received in request!")
+    
     template = None
     if template_id:
         result = await session.execute(select(Template).where(Template.id == template_id))
@@ -131,9 +139,17 @@ async def generate_image(
         )
     
     image_urls: list[str] = []
-    for file in files:
-        url = await upload_file_stream(file)
-        image_urls.append(url)
+    for idx, file in enumerate(files):
+        logger.info(f"Uploading file {idx}: {file.filename}")
+        try:
+            url = await upload_file_stream(file)
+            image_urls.append(url)
+            logger.info(f"File {idx} uploaded successfully: {url}")
+        except Exception as e:
+            logger.error(f"Failed to upload file {idx}: {e}", exc_info=True)
+            raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
+    
+    logger.info(f"Total uploaded image URLs: {len(image_urls)}")
     
     import logging
     logger = logging.getLogger(__name__)

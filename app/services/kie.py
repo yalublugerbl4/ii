@@ -223,19 +223,19 @@ async def build_payload_for_model(
     elif model == "google/nano-banana-edit":
         # NanoBanana Edit - точно как в bot.txt
         # В bot.txt: output_format всегда "png", image_size маппится через size_map
+        # KIE API требует image_urls всегда, даже если пустой массив
         payload = {
             "model": model,
             "input": {
                 "prompt": prompt[:5000],
                 "output_format": "png",  # Всегда "png" как в bot.txt
                 "image_size": image_size,
+                "image_urls": image_urls_list[:10] if image_urls_list else [],  # Всегда передаем, даже пустой массив
             },
         }
-        # image_urls добавляется только если есть изображения
+        # mode добавляется только если есть изображения
         if image_urls_list:
-            payload["input"]["image_urls"] = image_urls_list[:10]
-            payload["input"]["mode"] = "edit"  # Добавляем mode только если есть image_urls
-        # Если нет image_urls, это text-to-image режим (без mode)
+            payload["input"]["mode"] = "edit"
     elif model in ["flux2/pro-image-to-image", "flux2/flex-image-to-image"]:
         # Flux 2 Image-to-Image
         payload = {
