@@ -274,12 +274,21 @@ async def proxy_image(
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
+            # Определяем расширение из URL или content-type
+            content_type = resp.headers.get("content-type", "image/png")
+            ext = "png"
+            if "jpeg" in content_type or "jpg" in content_type:
+                ext = "jpg"
+            elif "png" in content_type:
+                ext = "png"
+            
             return Response(
                 content=resp.content,
-                media_type=resp.headers.get("content-type", "image/png"),
+                media_type=content_type,
                 headers={
-                    "Content-Disposition": f'inline; filename="image.png"',
+                    "Content-Disposition": f'attachment; filename="generated-image.{ext}"',
                     "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Expose-Headers": "Content-Disposition",
                 },
             )
     except Exception as e:
