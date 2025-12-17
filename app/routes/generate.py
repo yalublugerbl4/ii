@@ -102,37 +102,36 @@ async def list_models():
 @router.post("/image")
 async def generate_image(
     request: Request,
-    prompt: str = Form(...),
-    model: str = Form(...),
-    aspect_ratio: Optional[str] = Form("auto"),
-    resolution: Optional[str] = Form(None),
-    output_format: str = Form("png"),
-    template_id: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     import logging
     logger = logging.getLogger(__name__)
     
-    # Нормализуем files - если None, делаем пустой список
-    files_list = files if files else []
+    # Получаем все данные из form напрямую
+    form = await request.form()
+    logger.info(f"Form keys from request.form(): {list(form.keys())}")
     
-    # Дополнительная проверка через request.form() если files пустой
-    if not files_list:
-        try:
-            form = await request.form()
-            logger.info(f"Form keys from request.form(): {list(form.keys())}")
-            # Пробуем получить файлы из form
-            for key in form.keys():
-                values = form.getlist(key)
-                logger.info(f"Form key '{key}': {len(values)} values, types: {[type(v).__name__ for v in values]}")
-                for v in values:
-                    if isinstance(v, UploadFile):
-                        files_list.append(v)
-                        logger.info(f"Found UploadFile in key '{key}': {v.filename}")
-        except Exception as e:
-            logger.warning(f"Failed to check request.form(): {e}")
+    # Извлекаем текстовые поля
+    prompt = form.get("prompt", "")
+    model = form.get("model", "google/nano-banana-edit")
+    aspect_ratio = form.get("aspect_ratio", "auto")
+    resolution = form.get("resolution") or None
+    output_format = form.get("output_format", "png")
+    template_id = form.get("template_id") or None
+    
+    # Получаем файлы из form
+    files_list: List[UploadFile] = []
+    files_values = form.getlist("files")
+    logger.info(f"Files from form.getlist('files'): {len(files_values)} values")
+    
+    for idx, value in enumerate(files_values):
+        logger.info(f"Value {idx} type: {type(value).__name__}, value: {value}")
+        if isinstance(value, UploadFile):
+            files_list.append(value)
+            logger.info(f"Added UploadFile {idx}: filename={value.filename}, content_type={value.content_type}")
+        else:
+            logger.warning(f"Value {idx} is not UploadFile: {type(value)}")
     
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}")
     
