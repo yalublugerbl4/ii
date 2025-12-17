@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+import urllib.parse
 from typing import Any, Dict, Optional
 
 import jwt
@@ -24,6 +25,7 @@ def _parse_init_data(init_data: str) -> Dict[str, str]:
         if "=" not in p:
             continue
         k, v = p.split("=", 1)
+        # НЕ декодируем значения здесь - хеш был вычислен на основе закодированных значений
         data[k] = v
     return data
 
@@ -58,17 +60,54 @@ async def get_current_user(
     import logging
     logger = logging.getLogger(__name__)
     
-    # Получаем initData только из заголовка (query параметр изменяет хеш)
+    # Получаем initData из заголовка
     init_data = request.headers.get("x-telegram-initdata")
+    
+    # Пробуем разные варианты имени заголовка (разный регистр)
+    if not init_data:
+        init_data = request.headers.get("X-Telegram-InitData")
+    if not init_data:
+        init_data = request.headers.get("X-Telegram-Initdata")
     
     if not init_data:
         all_headers = dict(request.headers)
         logger.warning(f"Missing x-telegram-initdata header. Headers: {list(all_headers.keys())}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing x-telegram-initdata header")
     
+    # Пробуем декодировать URL-encoded строку (на случай если браузер закодировал весь заголовок)
+    original_init_data = init_data
+    try:
+        # Если строка URL-encoded, декодируем её
+        if '%' in init_data:
+            decoded = urllib.parse.unquote(init_data)
+            # Проверяем, что декодированная строка выглядит как валидный initData (содержит & и =)
+            if '&' in decoded and '=' in decoded:
+                init_data = decoded
+                logger.info("Decoded URL-encoded initData header")
+    except Exception as e:
+        logger.warning(f"Failed to decode initData: {e}")
+    
+    logger.info(f"initData received: length={len(init_data)}, first_100_chars={init_data[:100]}")
+    
     try:
         data = verify_telegram_init_data(init_data)
+    except ValueError as exc:
+        # Если проверка не прошла, пробуем с оригинальной (не декодированной) строкой
+        if init_data != original_init_data:
+            logger.info("Retrying with original (non-decoded) initData")
+            try:
+                data = verify_telegram_init_data(original_init_data)
+            except Exception:
+                logger.error(f"initData verification failed (both decoded and original): {exc}")
+                logger.error(f"Original initData sample: {original_init_data[:200]}")
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
+        else:
+            logger.error(f"initData verification failed: {exc}")
+            logger.error(f"initData sample: {init_data[:200]}")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
     except Exception as exc:
+        logger.error(f"initData verification error: {exc}")
+        logger.error(f"initData sample: {init_data[:200]}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid initData: {str(exc)}")
     
     user_data = data.get("user")
