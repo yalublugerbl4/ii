@@ -261,3 +261,55 @@ async def poll_generation(
     await session.refresh(gen)
     return gen
 
+
+@router.get("/proxy-image")
+async def proxy_image(
+    url: str = Query(...),
+    user=Depends(get_current_user),
+):
+    """Прокси для скачивания изображений (обход CORS)"""
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return Response(
+                content=resp.content,
+                media_type=resp.headers.get("content-type", "image/png"),
+                headers={
+                    "Content-Disposition": f'inline; filename="image.png"',
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to proxy image: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
+
+
+@router.get("/proxy-image")
+async def proxy_image(
+    url: str,
+    user=Depends(get_current_user),
+):
+    """Прокси для скачивания изображений (обход CORS)"""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            from fastapi.responses import Response
+            return Response(
+                content=resp.content,
+                media_type=resp.headers.get("content-type", "image/png"),
+                headers={
+                    "Content-Disposition": f'inline; filename="image.png"',
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to proxy image: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
+
