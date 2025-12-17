@@ -14,21 +14,32 @@ class KieError(Exception):
     pass
 
 
-async def upload_file_stream(file: UploadFile) -> str:
+async def upload_file_stream(file: UploadFile, upload_path: str = "images/nano-refs") -> str:
     url = f"{settings.kie_file_upload_base}/api/file-stream-upload"
     headers = {"Authorization": f"Bearer {settings.kie_api_key}"}
+    
+    # KIE API требует uploadPath как отдельное поле формы
     files = {"file": (file.filename, await file.read())}
+    data = {"uploadPath": upload_path}
+    
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(url, headers=headers, files=files)
+        resp = await client.post(url, headers=headers, files=files, data=data)
     try:
-        data = resp.json()
+        response_data = resp.json()
     except Exception:
-        raise KieError(f"Upload failed: HTTP {resp.status_code}")
-    if not isinstance(data, dict) or data.get("code") != 200:
-        raise KieError(f"Upload failed: {data}")
-    path = data.get("data", {}).get("path") or data.get("data")
+        error_text = resp.text[:1000] if hasattr(resp, 'text') else str(resp.content[:1000])
+        logger.error(f"Failed to parse upload response: status={resp.status_code}, text={error_text}")
+        raise KieError(f"Upload failed: HTTP {resp.status_code} - {error_text}")
+    if not isinstance(response_data, dict) or str(response_data.get("code")) != "200":
+        error_msg = response_data.get("msg") or str(response_data)
+        logger.error(f"Upload failed: code={response_data.get('code')}, msg={error_msg}, full_response={json.dumps(response_data, ensure_ascii=False)}")
+        raise KieError(f"Upload failed: {error_msg}")
+    
+    # KIE API может возвращать fileUrl или downloadUrl в data
+    payload = response_data.get("data") or {}
+    path = payload.get("fileUrl") or payload.get("downloadUrl") or payload.get("path") or response_data.get("data")
     if not path:
-        raise KieError(f"Upload missing path: {data}")
+        raise KieError(f"Upload missing path/URL: {response_data}")
     logger.info(f"File uploaded successfully, path/URL: {path}")
     return path
 
