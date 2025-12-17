@@ -101,49 +101,20 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
-    request: Request,
     prompt: str = Form(...),
     model: str = Form(...),
     aspect_ratio: Optional[str] = Form("auto"),
     resolution: Optional[str] = Form(None),
     output_format: str = Form("png"),
     template_id: Optional[str] = Form(None),
+    files: List[UploadFile] = File(default=[]),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     import logging
     logger = logging.getLogger(__name__)
     
-    # Получаем файлы напрямую из request.form()
-    files: List[UploadFile] = []
-    try:
-        form = await request.form()
-        logger.info(f"Form keys: {list(form.keys())}")
-        
-        # Пробуем получить файлы из разных полей (files, file, photo, image)
-        for field_name in ["files", "file", "photo", "image"]:
-            if field_name in form:
-                files_list = form.getlist(field_name)
-                logger.info(f"Files from form.getlist('{field_name}'): {len(files_list)}, types: {[type(f).__name__ for f in files_list]}")
-                for f in files_list:
-                    if isinstance(f, UploadFile) and f not in files:
-                        files.append(f)
-        
-        # Если не нашли, пробуем получить все UploadFile объекты из form
-        if not files:
-            for key in form.keys():
-                files_list = form.getlist(key)
-                for f in files_list:
-                    if isinstance(f, UploadFile) and f not in files:
-                        files.append(f)
-                        logger.info(f"Found UploadFile in field '{key}': {f.filename}")
-        
-        logger.info(f"Got {len(files)} UploadFile objects from request.form()")
-    except Exception as e:
-        logger.error(f"Failed to get files from request.form(): {e}", exc_info=True)
-        files = []
-    
-    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
+    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files) if files else 0}")
     
     # Логируем информацию о файлах
     if files:
