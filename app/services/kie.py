@@ -38,17 +38,20 @@ async def create_task(payload: Dict[str, Any]) -> str:
         "Authorization": f"Bearer {settings.kie_api_key}",
         "Content-Type": "application/json",
     }
-    logger.info(f"Creating task with payload: {json.dumps(payload, indent=2)}")
+    logger.info(f"Creating task with payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(url, headers=headers, content=json.dumps(payload))
     try:
         data = resp.json()
     except Exception as e:
-        logger.error(f"Failed to parse response: {e}, status: {resp.status_code}, text: {resp.text[:500]}")
-        raise KieError(f"Create task failed: HTTP {resp.status_code}")
-    logger.info(f"Task creation response: {json.dumps(data, indent=2)}")
+        error_text = resp.text[:1000] if hasattr(resp, 'text') else str(resp.content[:1000])
+        logger.error(f"Failed to parse response: {e}, status: {resp.status_code}, text: {error_text}")
+        raise KieError(f"Create task failed: HTTP {resp.status_code} - {error_text}")
+    logger.info(f"Task creation response (code={data.get('code')}): {json.dumps(data, indent=2, ensure_ascii=False)}")
     if not (isinstance(data, dict) and str(data.get("code")) == "200"):
-        raise KieError(f"Create task failed: {data}")
+        error_msg = data.get("msg") or str(data)
+        logger.error(f"KIE API error: code={data.get('code')}, msg={error_msg}, full_response={json.dumps(data, ensure_ascii=False)}")
+        raise KieError(f"Create task failed (code {data.get('code')}): {error_msg}")
     task_id = (data.get("data") or {}).get("taskId")
     if not task_id:
         raise KieError(f"Create task missing taskId: {data}")
