@@ -8,19 +8,31 @@ from .. import schemas
 from ..auth import get_current_user
 from ..db import get_session
 from ..models import Generation, Template, User
-from ..services.kie import KieError, build_payload_for_model, create_task, extract_result_url, poll_task, upload_file_stream
+from ..services.kie import (
+    KieError,
+    build_payload_for_model,
+    create_gpt4o_task,
+    create_task,
+    extract_result_url,
+    poll_task,
+    upload_file_stream,
+)
 from ..settings import settings
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
 # Стоимость генерации по моделям (в монетах)
 MODEL_PRICES = {
-    "nanobanana": 5.0,
-    "nanobanana_pro": 10.0,
-    "seedream4": 8.0,
-    "seedream4.5": 10.0,
-    "gpt-4o": 12.0,
-    "flux2": 15.0,
+    "google/nano-banana-edit": 5.0,
+    "google/nano-banana": 5.0,
+    "google/pro-image-to-image": 10.0,
+    "flux2/pro-image-to-image": 15.0,
+    "flux2/pro-text-to-image": 15.0,
+    "flux2/flex-image-to-image": 12.0,
+    "flux2/flex-text-to-image": 12.0,
+    "seedream/4.5-text-to-image": 10.0,
+    "seedream/4.5-edit": 10.0,
+    "gpt4o-image": 12.0,
 }
 
 
@@ -33,38 +45,42 @@ def get_generation_price(model: str) -> float:
 async def list_models():
     models = [
         schemas.ModelInfo(
-            id="nanobanana",
+            id="google/nano-banana-edit",
             title="NanoBanana",
             description="Быстрая модель для редактирования и создания изображений",
             supports_output_format=True,
         ),
         schemas.ModelInfo(
-            id="nanobanana_pro",
-            title="NanoBanana PRO",
-            description="Улучшенная модель с более качественным пониманием запроса",
+            id="google/pro-image-to-image",
+            title="🔥 NanoBanana PRO",
+            description="Новая улучшенная модель с более качественным пониманием запроса",
             supports_resolution=True,
             supports_output_format=True,
             default_output_format="png",
         ),
         schemas.ModelInfo(
-            id="seedream4",
-            title="Seedream 4.0",
-            description="Высококачественная генерация изображений",
-        ),
-        schemas.ModelInfo(
-            id="seedream4.5",
+            id="seedream/4.5-text-to-image",
             title="Seedream 4.5",
             description="Новейшая модель Seedream 4.5",
+            supports_output_format=True,
         ),
         schemas.ModelInfo(
-            id="gpt-4o",
+            id="gpt4o-image",
             title="GPT-4o",
             description="Новейшая модель от OpenAI для генерации изображений",
+            supports_output_format=True,
         ),
         schemas.ModelInfo(
-            id="flux2",
-            title="Flux 2",
-            description="Мощная модель Flux 2 с поддержкой Pro и Flex режимов",
+            id="flux2/pro-text-to-image",
+            title="Flux 2 Pro",
+            description="Мощная модель Flux 2 Pro для генерации из текста",
+            supports_output_format=True,
+        ),
+        schemas.ModelInfo(
+            id="flux2/flex-text-to-image",
+            title="Flux 2 Flex",
+            description="Гибкая модель Flux 2 Flex для генерации из текста",
+            supports_output_format=True,
         ),
     ]
     return models
@@ -106,7 +122,7 @@ async def generate_image(
         url = await upload_file_stream(file)
         image_urls.append(url)
     try:
-        payload = await build_payload_for_model(
+        payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
             aspect_ratio=aspect_ratio,
@@ -116,7 +132,11 @@ async def generate_image(
         )
         if settings.kie_callback_url:
             payload["callBackUrl"] = settings.kie_callback_url
-        task_id = await create_task(payload)
+        
+        if is_gpt4o:
+            task_id = await create_gpt4o_task(payload)
+        else:
+            task_id = await create_task(payload)
     except KieError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     
@@ -154,7 +174,10 @@ async def poll_generation(
         raise HTTPException(status_code=404, detail="Generation not found")
     if not gen.kie_task_id:
         raise HTTPException(status_code=400, detail="No task id")
-    data = await poll_task(gen.kie_task_id)
+    
+    is_gpt4o = gen.model == "gpt4o-image"
+    data = await poll_task(gen.kie_task_id, is_gpt4o=is_gpt4o)
+    
     status = (data.get("data") or {}).get("status") or data.get("status")
     if status:
         gen.status = str(status).lower()
