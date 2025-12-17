@@ -71,27 +71,42 @@ async def create_payment(
     session: AsyncSession = Depends(get_session),
 ):
     """Создать платеж через ЮКассу"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         body = await request.json()
-    except Exception:
+        logger.info(f"Payment creation request: plan_code={body.get('plan_code')}, user={user.tgid}")
+    except Exception as e:
+        logger.error(f"Failed to parse JSON body: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
     
     plan_code = body.get("plan_code")
     if not plan_code:
+        logger.error("Missing plan_code in request")
         raise HTTPException(status_code=400, detail="plan_code is required")
-    """Создать платеж через ЮКассу"""
-    if not _YOO_IMPORT_OK or not settings.yookassa_shop_id or not settings.yookassa_secret_key:
+    
+    if not _YOO_IMPORT_OK:
+        logger.error("YooKassa module not available")
         raise HTTPException(status_code=503, detail="Payment gateway not configured")
     
-    Configuration.configure(settings.yookassa_shop_id, settings.yookassa_secret_key)
+    if not settings.yookassa_shop_id or not settings.yookassa_secret_key:
+        logger.error("YooKassa credentials not configured")
+        raise HTTPException(status_code=503, detail="Payment gateway not configured")
+    
+    try:
+        Configuration.configure(settings.yookassa_shop_id, settings.yookassa_secret_key)
+    except Exception as e:
+        logger.error(f"Failed to configure YooKassa: {e}")
+        raise HTTPException(status_code=503, detail=f"Payment gateway configuration error: {str(e)}")
     
     plan = BALANCE_PLANS.get(plan_code)
     if not plan:
+        logger.error(f"Plan not found: {plan_code}")
         raise HTTPException(status_code=404, detail="Plan not found")
     
     amount_rub = float(plan["amount"])
     tokens = float(plan["tokens"])
-    plan_label = plan["label"]
     uid = user.tgid
     idem_key = str(uuid.uuid4())
     
@@ -112,24 +127,36 @@ async def create_payment(
     }
     
     try:
+        logger.info(f"Creating YooKassa payment: amount={amount_rub}, tokens={tokens}, idem_key={idem_key}")
         yoo_payment = YooPayment.create(yoo_body, idem_key)
+        logger.info(f"YooKassa payment created: {yoo_payment.id}")
     except ApiError as exc:
-        raise HTTPException(status_code=400, detail=f"Payment creation failed: {yk_error_text(exc)}")
+        error_msg = yk_error_text(exc)
+        logger.error(f"YooKassa ApiError: {error_msg}")
+        raise HTTPException(status_code=400, detail=f"Payment creation failed: {error_msg}")
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Payment creation failed: {yk_error_text(exc)}")
+        error_msg = yk_error_text(exc)
+        logger.error(f"YooKassa Exception: {type(exc).__name__}: {error_msg}")
+        raise HTTPException(status_code=400, detail=f"Payment creation failed: {error_msg}")
     
     # Сохраняем платеж в БД
-    payment = Payment(
-        tgid=uid,
-        yookassa_payment_id=yoo_payment.id,
-        amount=amount_rub,
-        tokens=tokens,
-        status="pending",
-        plan_code=plan_code,
-    )
-    session.add(payment)
-    await session.commit()
-    await session.refresh(payment)
+    try:
+        payment = Payment(
+            tgid=uid,
+            yookassa_payment_id=yoo_payment.id,
+            amount=amount_rub,
+            tokens=tokens,
+            status="pending",
+            plan_code=plan_code,
+        )
+        session.add(payment)
+        await session.commit()
+        await session.refresh(payment)
+        logger.info(f"Payment saved to DB: {payment.id}")
+    except Exception as e:
+        logger.error(f"Failed to save payment to DB: {e}")
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save payment: {str(e)}")
     
     return {
         "payment_id": str(payment.id),
@@ -192,8 +219,13 @@ async def get_payment_status(
     session: AsyncSession = Depends(get_session),
 ):
     """Проверить статус платежа"""
+    try:
+        payment_uuid = uuid.UUID(payment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payment_id format")
+    
     result = await session.execute(
-        select(Payment).where(Payment.id == payment_id, Payment.tgid == user.tgid)
+        select(Payment).where(Payment.id == payment_uuid, Payment.tgid == user.tgid)
     )
     payment = result.scalars().first()
     if not payment:
