@@ -101,6 +101,7 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
+    request: Request,
     prompt: str = Form(...),
     model: str = Form(...),
     aspect_ratio: Optional[str] = Form("auto"),
@@ -116,6 +117,22 @@ async def generate_image(
     
     # Нормализуем files - если None, делаем пустой список
     files_list = files if files else []
+    
+    # Дополнительная проверка через request.form() если files пустой
+    if not files_list:
+        try:
+            form = await request.form()
+            logger.info(f"Form keys from request.form(): {list(form.keys())}")
+            # Пробуем получить файлы из form
+            for key in form.keys():
+                values = form.getlist(key)
+                logger.info(f"Form key '{key}': {len(values)} values, types: {[type(v).__name__ for v in values]}")
+                for v in values:
+                    if isinstance(v, UploadFile):
+                        files_list.append(v)
+                        logger.info(f"Found UploadFile in key '{key}': {v.filename}")
+        except Exception as e:
+            logger.warning(f"Failed to check request.form(): {e}")
     
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}")
     
