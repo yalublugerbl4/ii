@@ -47,6 +47,26 @@ def get_generation_price(model: str) -> float:
     return MODEL_PRICES.get(model, 10.0)
 
 
+@router.post("/upload-file")
+async def upload_file(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    """Загрузить файл и получить URL"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"upload_file called: filename={file.filename}, content_type={file.content_type}")
+    
+    try:
+        url = await upload_file_stream(file)
+        logger.info(f"File uploaded successfully: {url}")
+        return {"url": url, "filename": file.filename}
+    except Exception as e:
+        logger.error(f"Failed to upload file: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
+
+
 @router.get("/models", response_model=list[schemas.ModelInfo])
 async def list_models():
     # Модели точно как в bot.txt и документации
