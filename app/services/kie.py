@@ -38,12 +38,15 @@ async def create_task(payload: Dict[str, Any]) -> str:
         "Authorization": f"Bearer {settings.kie_api_key}",
         "Content-Type": "application/json",
     }
+    logger.info(f"Creating task with payload: {json.dumps(payload, indent=2)}")
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(url, headers=headers, content=json.dumps(payload))
     try:
         data = resp.json()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to parse response: {e}, status: {resp.status_code}, text: {resp.text[:500]}")
         raise KieError(f"Create task failed: HTTP {resp.status_code}")
+    logger.info(f"Task creation response: {json.dumps(data, indent=2)}")
     if not (isinstance(data, dict) and str(data.get("code")) == "200"):
         raise KieError(f"Create task failed: {data}")
     task_id = (data.get("data") or {}).get("taskId")
@@ -169,53 +172,76 @@ async def build_payload_for_model(
         return payload, True
     
     # Остальные модели используют Market API
+    # Маппинг aspect_ratio -> image_size
+    size_map = {
+        "9:16": "9:16",
+        "16:9": "16:9",
+        "1:1": "1:1",
+        "3:4": "3:4",
+        "4:3": "4:3",
+        "2:3": "2:3",
+        "3:2": "3:2",
+        "5:4": "5:4",
+        "4:5": "4:5",
+        "21:9": "21:9",
+        "auto": "auto",
+    }
+    image_size = size_map.get(aspect_ratio or "auto", aspect_ratio or "auto")
+    
     if model == "google/pro-image-to-image":
-        # NanoBanana PRO
-        payload = {
-            "model": model,
-            "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
-                "output_format": output_format or "png",
-            },
+        # NanoBanana PRO - использует image_input, не image_urls!
+        # Для PRO используется aspect_ratio напрямую, не image_size
+        payload_input: Dict[str, Any] = {
+            "prompt": prompt[:5000],
         }
+        if image_urls_list:
+            # До 10 изображений, используем image_input
+            payload_input["image_input"] = image_urls_list[:10]
+        if aspect_ratio and aspect_ratio != "auto":
+            # Для PRO используем aspect_ratio напрямую
+            payload_input["aspect_ratio"] = aspect_ratio
         if resolution:
-            payload["input"]["resolution"] = resolution
-        if image_urls_list:
-            # До 10 изображений
-            payload["input"]["image_urls"] = image_urls_list[:10]
+            payload_input["resolution"] = resolution
+        if output_format:
+            payload_input["output_format"] = output_format.lower()
+        
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
     elif model == "google/nano-banana-edit":
-        # NanoBanana Edit
+        # NanoBanana Edit - использует image_urls с mode: "edit"
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
                 "output_format": output_format or "png",
+                "image_size": image_size,
             },
         }
         if image_urls_list:
             # До 10 изображений
             payload["input"]["image_urls"] = image_urls_list[:10]
+            payload["input"]["mode"] = "edit"
     elif model in ["flux2/pro-image-to-image", "flux2/flex-image-to-image"]:
         # Flux 2 Image-to-Image
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
+                "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }
         if image_urls_list:
-            payload["input"]["image_urls"] = image_urls_list[:5]  # Проверить лимит
+            payload["input"]["image_urls"] = image_urls_list[:5]
     elif model in ["flux2/pro-text-to-image", "flux2/flex-text-to-image"]:
         # Flux 2 Text-to-Image
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
+                "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }
@@ -224,8 +250,8 @@ async def build_payload_for_model(
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
+                "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }
@@ -234,20 +260,20 @@ async def build_payload_for_model(
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
+                "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }
         if image_urls_list:
-            payload["input"]["image_urls"] = image_urls_list[:5]  # Проверить лимит
+            payload["input"]["image_urls"] = image_urls_list[:5]
     else:
         # Fallback для неизвестных моделей
         payload = {
             "model": model,
             "input": {
-                "prompt": prompt,
-                "image_size": aspect_ratio or "auto",
+                "prompt": prompt[:5000],
+                "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }

@@ -131,6 +131,7 @@ async def generate_image(
             image_urls=image_urls,
         )
         if settings.kie_callback_url:
+            # callBackUrl добавляется на верхний уровень payload, не в input
             payload["callBackUrl"] = settings.kie_callback_url
         
         if is_gpt4o:
@@ -138,7 +139,15 @@ async def generate_image(
         else:
             task_id = await create_task(payload)
     except KieError as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"KIE error: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(exc)}")
     
     # Списание баланса после успешного создания задачи
     db_user.balance = float(db_user.balance) - price
