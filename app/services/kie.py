@@ -41,18 +41,25 @@ async def create_task(payload: Dict[str, Any]) -> str:
     logger.info(f"Creating task with payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(url, headers=headers, content=json.dumps(payload))
+    # Обработка ответа точно как в bot.txt
     try:
         data = resp.json()
-    except Exception as e:
-        error_text = resp.text[:1000] if hasattr(resp, 'text') else str(resp.content[:1000])
-        logger.error(f"Failed to parse response: {e}, status: {resp.status_code}, text: {error_text}")
-        raise KieError(f"Create task failed: HTTP {resp.status_code} - {error_text}")
+    except Exception:
+        # Если не удалось распарсить JSON, пробуем получить текст
+        error_text = resp.text[:1000] if hasattr(resp, 'text') else str(resp.content[:1000] if hasattr(resp, 'content') else '')
+        logger.error(f"Failed to parse JSON response, status: {resp.status_code}, text: {error_text}")
+        raise KieError(f"Create task failed: HTTP {resp.status_code}")
     logger.info(f"Task creation response (code={data.get('code')}): {json.dumps(data, indent=2, ensure_ascii=False)}")
-    if not (isinstance(data, dict) and str(data.get("code")) == "200"):
+    # Проверка точно как в bot.txt
+    if not (
+        isinstance(data, dict)
+        and str(data.get("code")) == "200"
+        and isinstance(data.get("data"), dict)
+    ):
         error_msg = data.get("msg") or str(data)
         logger.error(f"KIE API error: code={data.get('code')}, msg={error_msg}, full_response={json.dumps(data, ensure_ascii=False)}")
         raise KieError(f"Create task failed (code {data.get('code')}): {error_msg}")
-    task_id = (data.get("data") or {}).get("taskId")
+    task_id = data.get("data", {}).get("taskId")
     if not task_id:
         raise KieError(f"Create task missing taskId: {data}")
     return str(task_id)
@@ -191,16 +198,16 @@ async def build_payload_for_model(
     }
     image_size = size_map.get(aspect_ratio or "auto", aspect_ratio or "auto")
     
-    if model == "google/pro-image-to-image":
-        # NanoBanana PRO - использует image_input, не image_urls!
-        # Для PRO используется aspect_ratio напрямую, не image_size
+    if model == "nano-banana-pro" or model == "google/pro-image-to-image":
+        # NanoBanana PRO - точно как в bot.txt
+        # Использует модель "nano-banana-pro" (не "google/pro-image-to-image")
         payload_input: Dict[str, Any] = {
-            "prompt": prompt[:5000],
+            "prompt": (prompt or "")[:5000],
         }
         if image_urls_list:
             # До 10 изображений, используем image_input
             payload_input["image_input"] = image_urls_list[:10]
-        if aspect_ratio and aspect_ratio != "auto":
+        if aspect_ratio:
             # Для PRO используем aspect_ratio напрямую
             payload_input["aspect_ratio"] = aspect_ratio
         if resolution:
@@ -208,8 +215,9 @@ async def build_payload_for_model(
         if output_format:
             payload_input["output_format"] = output_format.lower()
         
+        # В bot.txt используется KIE_NANO_PRO_MODEL = "nano-banana-pro"
         payload = {
-            "model": model,
+            "model": "nano-banana-pro",
             "input": payload_input,
         }
     elif model == "google/nano-banana-edit":
@@ -250,20 +258,22 @@ async def build_payload_for_model(
                 "output_format": output_format or "png",
             },
         }
-    elif model == "seedream/4.5-text-to-image":
-        # Seedream 4.5 Text-to-Image
+    elif model == "bytedance/seedream-v4-text-to-image" or model == "seedream/4.5-text-to-image":
+        # Seedream - точно как в bot.txt
+        # В bot.txt используется bytedance/seedream-v4-text-to-image
         payload = {
-            "model": model,
+            "model": "bytedance/seedream-v4-text-to-image" if "v4" in model else model,
             "input": {
                 "prompt": prompt[:5000],
                 "image_size": image_size,
                 "output_format": output_format or "png",
             },
         }
-    elif model == "seedream/4.5-edit":
-        # Seedream 4.5 Edit
+    elif model == "bytedance/seedream-v4-edit" or model == "seedream/4.5-edit":
+        # Seedream Edit - точно как в bot.txt
+        # В bot.txt используется bytedance/seedream-v4-edit
         payload = {
-            "model": model,
+            "model": "bytedance/seedream-v4-edit" if "v4" in model else model,
             "input": {
                 "prompt": prompt[:5000],
                 "image_size": image_size,

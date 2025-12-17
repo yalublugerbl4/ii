@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -25,11 +25,14 @@ router = APIRouter(prefix="/generate", tags=["generate"])
 MODEL_PRICES = {
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,
-    "google/pro-image-to-image": 10.0,
+    "nano-banana-pro": 10.0,  # Как в bot.txt
+    "google/pro-image-to-image": 10.0,  # Алиас для обратной совместимости
     "flux2/pro-image-to-image": 15.0,
     "flux2/pro-text-to-image": 15.0,
     "flux2/flex-image-to-image": 12.0,
     "flux2/flex-text-to-image": 12.0,
+    "bytedance/seedream-v4-text-to-image": 10.0,  # Как в bot.txt
+    "bytedance/seedream-v4-edit": 10.0,  # Как в bot.txt
     "seedream/4.5-text-to-image": 10.0,
     "seedream/4.5-edit": 10.0,
     "gpt4o-image": 12.0,
@@ -43,6 +46,7 @@ def get_generation_price(model: str) -> float:
 
 @router.get("/models", response_model=list[schemas.ModelInfo])
 async def list_models():
+    # Модели точно как в bot.txt и документации
     models = [
         schemas.ModelInfo(
             id="google/nano-banana-edit",
@@ -51,12 +55,18 @@ async def list_models():
             supports_output_format=True,
         ),
         schemas.ModelInfo(
-            id="google/pro-image-to-image",
+            id="nano-banana-pro",
             title="🔥 NanoBanana PRO",
             description="Новая улучшенная модель с более качественным пониманием запроса",
             supports_resolution=True,
             supports_output_format=True,
             default_output_format="png",
+        ),
+        schemas.ModelInfo(
+            id="bytedance/seedream-v4-text-to-image",
+            title="Seedream 4.0",
+            description="Высококачественная генерация изображений",
+            supports_output_format=True,
         ),
         schemas.ModelInfo(
             id="seedream/4.5-text-to-image",
@@ -88,16 +98,19 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
-    prompt: str,
-    model: str,
-    aspect_ratio: Optional[str] = "auto",
-    resolution: Optional[str] = None,
-    output_format: str = "png",
-    template_id: Optional[str] = None,
+    prompt: str = Form(...),
+    model: str = Form(...),
+    aspect_ratio: Optional[str] = Form("auto"),
+    resolution: Optional[str] = Form(None),
+    output_format: str = Form("png"),
+    template_id: Optional[str] = Form(None),
     files: List[UploadFile] = File(default_factory=list),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
     template = None
     if template_id:
         result = await session.execute(select(Template).where(Template.id == template_id))

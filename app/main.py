@@ -1,11 +1,14 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .routes import auth, generate, history, payments, templates
 from .settings import settings
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name)
 
@@ -36,6 +39,17 @@ app.include_router(templates.router)
 app.include_router(generate.router)
 app.include_router(history.router)
 app.include_router(payments.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Обработчик ошибок валидации - логируем детали"""
+    logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+    logger.error(f"Request body: {await request.body()}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors(), "body": str(await request.body())},
+    )
 
 
 @app.get("/health")
