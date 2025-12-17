@@ -29,6 +29,7 @@ async def upload_file_stream(file: UploadFile) -> str:
     path = data.get("data", {}).get("path") or data.get("data")
     if not path:
         raise KieError(f"Upload missing path: {data}")
+    logger.info(f"File uploaded successfully, path/URL: {path}")
     return path
 
 
@@ -38,7 +39,15 @@ async def create_task(payload: Dict[str, Any]) -> str:
         "Authorization": f"Bearer {settings.kie_api_key}",
         "Content-Type": "application/json",
     }
-    logger.info(f"Creating task with payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+    # Логируем payload с особым вниманием к image_urls
+    payload_str = json.dumps(payload, indent=2, ensure_ascii=False)
+    logger.info(f"Creating task with payload: {payload_str}")
+    
+    # Проверяем наличие image_urls в payload
+    input_data = payload.get("input", {})
+    image_urls = input_data.get("image_urls")
+    logger.info(f"Payload check - model: {payload.get('model')}, image_urls type: {type(image_urls)}, image_urls value: {image_urls}")
+    
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.post(url, headers=headers, content=json.dumps(payload))
     # Обработка ответа точно как в bot.txt
@@ -222,20 +231,42 @@ async def build_payload_for_model(
         }
     elif model == "google/nano-banana-edit":
         # NanoBanana Edit - точно как в bot.txt
-        # В bot.txt: output_format всегда "png", image_size маппится через size_map
-        # KIE API требует image_urls всегда, даже если пустой массив
+        # В bot.txt используются две модели:
+        # - google/nano-banana для создания (text-to-image)
+        # - google/nano-banana-edit для редактирования (image-to-image)
+        # Если нет изображений, используем google/nano-banana
+        if not image_urls_list:
+            # Нет изображений - используем модель для создания
+            actual_model = "google/nano-banana"
+        else:
+            # Есть изображения - используем модель для редактирования
+            actual_model = "google/nano-banana-edit"
+        
+        payload = {
+            "model": actual_model,
+            "input": {
+                "prompt": prompt[:5000],
+                "output_format": "png",  # Всегда "png" как в bot.txt
+                "image_size": image_size,
+            },
+        }
+        # image_urls и mode добавляются только если есть изображения
+        if image_urls_list:
+            payload["input"]["image_urls"] = image_urls_list[:10]
+            payload["input"]["mode"] = "edit"
+            logger.info(f"Added image_urls to payload: {len(image_urls_list[:10])} URLs")
+        else:
+            logger.warning("No image_urls for google/nano-banana-edit model!")
+    elif model == "google/nano-banana":
+        # NanoBanana для создания (text-to-image) - без image_urls
         payload = {
             "model": model,
             "input": {
                 "prompt": prompt[:5000],
                 "output_format": "png",  # Всегда "png" как в bot.txt
                 "image_size": image_size,
-                "image_urls": image_urls_list[:10] if image_urls_list else [],  # Всегда передаем, даже пустой массив
             },
         }
-        # mode добавляется только если есть изображения
-        if image_urls_list:
-            payload["input"]["mode"] = "edit"
     elif model in ["flux2/pro-image-to-image", "flux2/flex-image-to-image"]:
         # Flux 2 Image-to-Image
         payload = {

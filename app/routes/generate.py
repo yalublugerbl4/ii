@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -98,24 +98,30 @@ async def list_models():
 
 @router.post("/image")
 async def generate_image(
+    request: Request,
     prompt: str = Form(...),
     model: str = Form(...),
     aspect_ratio: Optional[str] = Form("auto"),
     resolution: Optional[str] = Form(None),
     output_format: str = Form("png"),
     template_id: Optional[str] = Form(None),
-    files: List[UploadFile] = File(default_factory=list),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     import logging
     logger = logging.getLogger(__name__)
+    
+    # Получаем файлы из request.form() напрямую
+    form = await request.form()
+    files_list = form.getlist("files")
+    files = [f for f in files_list if isinstance(f, UploadFile)]
+    
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files)}")
     
     # Логируем информацию о файлах
     if files:
         for idx, file in enumerate(files):
-            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}, size={file.size if hasattr(file, 'size') else 'unknown'}")
+            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}")
     else:
         logger.warning("No files received in request!")
     
@@ -139,15 +145,18 @@ async def generate_image(
         )
     
     image_urls: list[str] = []
-    for idx, file in enumerate(files):
-        logger.info(f"Uploading file {idx}: {file.filename}")
-        try:
-            url = await upload_file_stream(file)
-            image_urls.append(url)
-            logger.info(f"File {idx} uploaded successfully: {url}")
-        except Exception as e:
-            logger.error(f"Failed to upload file {idx}: {e}", exc_info=True)
-            raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
+    if files:
+        for idx, file in enumerate(files):
+            logger.info(f"Uploading file {idx}: {file.filename}")
+            try:
+                url = await upload_file_stream(file)
+                image_urls.append(url)
+                logger.info(f"File {idx} uploaded successfully: {url}")
+            except Exception as e:
+                logger.error(f"Failed to upload file {idx}: {e}", exc_info=True)
+                raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
+    else:
+        logger.warning("No files provided in request")
     
     logger.info(f"Total uploaded image URLs: {len(image_urls)}")
     
