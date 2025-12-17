@@ -122,7 +122,11 @@ async def generate_image(
         url = await upload_file_stream(file)
         image_urls.append(url)
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.info(f"Building payload for model: {model}, prompt length: {len(prompt)}, image_urls count: {len(image_urls)}")
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
@@ -131,18 +135,21 @@ async def generate_image(
             output_format=output_format,
             image_urls=image_urls,
         )
+        logger.info(f"Payload built, is_gpt4o: {is_gpt4o}")
+        
         if settings.kie_callback_url:
             # callBackUrl добавляется на верхний уровень payload, не в input
             payload["callBackUrl"] = settings.kie_callback_url
+            logger.info(f"Added callback URL: {settings.kie_callback_url}")
         
+        logger.info(f"Creating task, model: {model}, is_gpt4o: {is_gpt4o}")
         if is_gpt4o:
             task_id = await create_gpt4o_task(payload)
         else:
             task_id = await create_task(payload)
+        logger.info(f"Task created successfully: {task_id}")
     except KieError as exc:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"KIE error: {exc}")
+        logger.error(f"KIE error: {exc}", exc_info=True)
         # Если ошибка содержит код 422, возвращаем 422, иначе 400
         error_str = str(exc)
         if "422" in error_str or "code 422" in error_str.lower() or "validation" in error_str.lower():
