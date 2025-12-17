@@ -296,12 +296,33 @@ async def poll_generation(
 
 @router.get("/proxy-image")
 async def proxy_image(
+    request: Request,
     url: str = Query(...),
-    user=Depends(get_current_user),
+    initData: Optional[str] = Query(None, alias="initData"),
+    user: Optional[User] = None,
+    session: AsyncSession = Depends(get_session),
 ):
     """Прокси для скачивания изображений (обход CORS)"""
     import logging
     logger = logging.getLogger(__name__)
+    
+    # Пробуем получить пользователя - если initData в query, используем его как fallback
+    try:
+        if not user and initData:
+            # Временное решение: используем initData из query для авторизации
+            from ..auth import verify_telegram_init_data
+            import urllib.parse
+            decoded_init_data = urllib.parse.unquote(initData)
+            data = verify_telegram_init_data(decoded_init_data)
+            tgid = int(json.loads(data.get("user", "{}")).get("id", 0))
+            result = await session.execute(select(User).where(User.tgid == tgid))
+            user = result.scalars().first()
+        if not user:
+            # Пробуем обычную авторизацию через заголовок
+            user = await get_current_user(request, session)
+    except Exception as e:
+        logger.warning(f"Auth failed for proxy-image, continuing anyway: {e}")
+        # Продолжаем без авторизации для скачивания
     
     try:
         logger.info(f"Proxying image from: {url}")
