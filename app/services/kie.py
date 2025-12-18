@@ -206,6 +206,7 @@ async def build_payload_for_model(
     resolution: Optional[str],
     output_format: str,
     quality: Optional[str] = None,  # Для Seedream 4.5: basic или high
+    mode: Optional[str] = None,  # Для Grok Imagine: normal, fun, spicy
     image_urls: Optional[Iterable[str]] = None,
 ) -> tuple[Dict[str, Any], bool]:
     """
@@ -386,6 +387,28 @@ async def build_payload_for_model(
             }
             if image_urls_list:
                 payload["input"]["image_urls"] = image_urls_list[:5]
+    elif model == "grok-imagine/text-to-video":
+        # Grok Imagine Text-to-Video
+        payload = {
+            "model": model,
+            "input": {
+                "prompt": prompt[:5000],
+                "aspect_ratio": aspect_ratio or "2:3",
+                "mode": mode or "normal",
+            },
+        }
+    elif model == "grok-imagine/image-to-video":
+        # Grok Imagine Image-to-Video
+        payload = {
+            "model": model,
+            "input": {
+                "prompt": prompt[:5000],
+                "mode": mode or "normal",
+            },
+        }
+        if image_urls_list:
+            # Только один URL для image-to-video
+            payload["input"]["image_urls"] = image_urls_list[:1]
     else:
         # Fallback для неизвестных моделей
         payload = {
