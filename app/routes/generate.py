@@ -93,14 +93,7 @@ async def list_video_models():
         schemas.ModelInfo(
             id="grok-imagine/text-to-video",
             title="Grok Imagine",
-            description="Генерация видео из текста",
-            modes=["video"],
-            supports_output_format=False,
-        ),
-        schemas.ModelInfo(
-            id="grok-imagine/image-to-video",
-            title="Grok Imagine (из изображения)",
-            description="Генерация видео из изображения",
+            description="Генерация видео",
             modes=["video"],
             supports_output_format=False,
         ),
