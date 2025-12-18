@@ -144,16 +144,6 @@ async def generate_image(
     
     logger.info(f"generate_image called: model={model}, prompt_length={len(prompt)}, files_count={len(files_list)}, image_urls_count={len(image_urls_list)}")
     
-    # Логируем информацию о файлах
-    if files_list:
-        for idx, file in enumerate(files_list):
-            logger.info(f"File {idx}: filename={file.filename}, content_type={file.content_type}, size={file.size if hasattr(file, 'size') else 'unknown'}")
-    
-    # Логируем image_urls если они переданы
-    if image_urls_list:
-        for idx, url in enumerate(image_urls_list):
-            logger.info(f"Image URL {idx}: {url}")
-    
     template = None
     if template_id:
         result = await session.execute(select(Template).where(Template.id == template_id))
@@ -162,6 +152,7 @@ async def generate_image(
             raise HTTPException(status_code=404, detail="Template not found")
         if template.default_prompt and not prompt:
             prompt = template.default_prompt
+    
     # Проверка баланса
     price = get_generation_price(model)
     result = await session.execute(select(User).where(User.tgid == user.tgid))
@@ -191,11 +182,73 @@ async def generate_image(
             except Exception as e:
                 logger.error(f"Failed to upload file {idx}: {e}", exc_info=True)
                 raise HTTPException(status_code=400, detail=f"Failed to upload file: {str(e)}")
-    else:
-        logger.warning("No files or image_urls provided in request")
     
     logger.info(f"Total image URLs: {len(final_image_urls)}")
     
+    # Проверяем, есть ли вебхуки n8n
+    n8n_webhooks = None
+    if settings.n8n_webhook_urls:
+        # Разделяем по запятой, если несколько вебхуков
+        n8n_webhooks = [url.strip() for url in settings.n8n_webhook_urls.split(",") if url.strip()]
+        logger.info(f"Found {len(n8n_webhooks)} n8n webhook(s)")
+    
+    if n8n_webhooks:
+        # Отправляем на вебхуки n8n вместо обработки через KIE
+        logger.info("Sending data to n8n webhooks instead of KIE")
+        
+        # Подготавливаем данные для отправки на вебхук
+        webhook_data = {
+            "prompt": prompt,
+            "model": model,
+            "aspect_ratio": aspect_ratio,
+            "resolution": resolution,
+            "output_format": output_format,
+            "image_urls": final_image_urls,
+            "user_tgid": user.tgid,
+            "user_id": user.id,
+            "template_id": template_id,
+        }
+        
+        # Отправляем на все указанные вебхуки
+        webhook_errors = []
+        for webhook_url in n8n_webhooks:
+            try:
+                logger.info(f"Sending to n8n webhook: {webhook_url}")
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(webhook_url, json=webhook_data)
+                    response.raise_for_status()
+                    logger.info(f"Successfully sent to webhook: {webhook_url}, status: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Failed to send to webhook {webhook_url}: {e}", exc_info=True)
+                webhook_errors.append(f"{webhook_url}: {str(e)}")
+        
+        if webhook_errors and len(webhook_errors) == len(n8n_webhooks):
+            # Все вебхуки вернули ошибку
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to send to all webhooks: {'; '.join(webhook_errors)}"
+            )
+        
+        # Создаем запись в БД со статусом "sent_to_n8n" (или "queued")
+        gen = Generation(
+            tgid=user.tgid,
+            template_id=template.id if template else None,
+            model=model,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            output_format=output_format,
+            prompt=prompt,
+            status="sent_to_n8n",  # Новый статус для отправки в n8n
+            kie_task_id=None,  # Нет задачи в KIE
+        )
+        session.add(gen)
+        await session.commit()
+        await session.refresh(gen)
+        
+        logger.info(f"Generation {gen.id} sent to n8n webhooks successfully")
+        return {"generation_id": str(gen.id), "status": "sent_to_n8n", "message": "Data sent to n8n"}
+    
+    # Старая логика через KIE (если вебхуки не настроены)
     try:
         logger.info(f"Building payload for model: {model}, prompt length: {len(prompt)}, image_urls count: {len(final_image_urls)}")
         payload, is_gpt4o = await build_payload_for_model(

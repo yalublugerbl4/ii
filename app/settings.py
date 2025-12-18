@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     yookassa_shop_id: str | None = None
     yookassa_secret_key: str | None = None
     frontend_url: str = "https://iiapp-66742.web.app"
+    # Webhooks для n8n - можно указать несколько через запятую или один общий
+    n8n_webhook_urls: str | None = None  # Формат: "url1,url2,url3" или просто "url"
 
     class Config:
         env_file = ".env"
