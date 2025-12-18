@@ -197,16 +197,17 @@ async def generate_image(
         logger.info("Sending data to n8n webhooks instead of KIE")
         
         # Подготавливаем данные для отправки на вебхук
+        # Конвертируем UUID в строки для JSON сериализации
         webhook_data = {
             "prompt": prompt,
             "model": model,
             "aspect_ratio": aspect_ratio,
-            "resolution": resolution,
+            "resolution": resolution or None,  # Убеждаемся что None, а не пустая строка
             "output_format": output_format,
             "image_urls": final_image_urls,
             "user_tgid": user.tgid,
-            "user_id": user.id,
-            "template_id": template_id,
+            "user_id": str(user.id) if user.id else None,  # Конвертируем UUID в строку
+            "template_id": str(template_id) if template_id else None,  # Конвертируем UUID в строку
         }
         
         # Отправляем на все указанные вебхуки
