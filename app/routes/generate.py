@@ -86,6 +86,28 @@ async def list_models():
     return models
 
 
+@router.get("/video-models", response_model=list[schemas.ModelInfo])
+async def list_video_models():
+    # Модели для генерации видео
+    models = [
+        schemas.ModelInfo(
+            id="grok-imagine/text-to-video",
+            title="Grok Imagine",
+            description="Генерация видео из текста",
+            modes=["video"],
+            supports_output_format=False,
+        ),
+        schemas.ModelInfo(
+            id="grok-imagine/image-to-video",
+            title="Grok Imagine (из изображения)",
+            description="Генерация видео из изображения",
+            modes=["video"],
+            supports_output_format=False,
+        ),
+    ]
+    return models
+
+
 @router.post("/video")
 async def generate_video(
     request: Request,
@@ -195,10 +217,12 @@ async def generate_video(
     # Старая логика через KIE (если вебхуки не настроены)
     try:
         logger.info(f"Building payload for video model: {model}, prompt length: {len(prompt)}, image_urls count: {len(final_image_urls)}")
+        # Для image-to-video aspect_ratio не нужен, для text-to-video нужен
+        video_aspect_ratio = aspect_ratio if model == "grok-imagine/text-to-video" else None
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
-            aspect_ratio=aspect_ratio,
+            aspect_ratio=video_aspect_ratio,
             resolution=None,
             output_format="mp4",
             quality=None,
