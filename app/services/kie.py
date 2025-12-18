@@ -389,11 +389,11 @@ async def build_payload_for_model(
                 payload["input"]["image_urls"] = image_urls_list[:5]
     elif model == "grok-imagine/text-to-video":
         # Grok Imagine Text-to-Video
+        # aspect_ratio не передаем - пользователь не может выбирать соотношение сторон
         payload = {
             "model": model,
             "input": {
                 "prompt": prompt[:5000],
-                "aspect_ratio": aspect_ratio or "2:3",  # Обязательно для text-to-video
                 "mode": mode or "normal",
             },
         }

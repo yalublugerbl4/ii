@@ -106,7 +106,7 @@ async def generate_video(
     request: Request,
     prompt: str = Form(...),
     model: str = Form(...),  # grok-imagine/text-to-video или grok-imagine/image-to-video
-    aspect_ratio: Optional[str] = Form("2:3"),
+    aspect_ratio: Optional[str] = Form(None),  # Grok Imagine не поддерживает выбор соотношения сторон
     mode: Optional[str] = Form("normal"),  # normal, fun, spicy
     files: Optional[List[UploadFile]] = File(None),
     user=Depends(get_current_user),
@@ -162,13 +162,15 @@ async def generate_video(
         webhook_data = {
             "prompt": prompt,
             "model": model,
-            "aspect_ratio": aspect_ratio,
             "mode": mode or "normal",
             "image_urls": final_image_urls,
             "user_tgid": user.tgid,
             "user_id": str(user.id) if user.id else None,
             "template_id": None,
         }
+        # aspect_ratio не передаем - Grok Imagine не поддерживает выбор соотношения сторон
+        if aspect_ratio:
+            webhook_data["aspect_ratio"] = aspect_ratio
         
         webhook_errors = []
         for webhook_url in n8n_webhooks:
@@ -210,8 +212,8 @@ async def generate_video(
     # Старая логика через KIE (если вебхуки не настроены)
     try:
         logger.info(f"Building payload for video model: {model}, prompt length: {len(prompt)}, image_urls count: {len(final_image_urls)}")
-        # Для image-to-video aspect_ratio не нужен, для text-to-video нужен
-        video_aspect_ratio = aspect_ratio if model == "grok-imagine/text-to-video" else None
+        # Grok Imagine не поддерживает выбор соотношения сторон, не передаем aspect_ratio
+        video_aspect_ratio = None
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
