@@ -34,10 +34,26 @@ MODEL_PRICES = {
     "seedream/4.5-text-to-image": 10.0,
 }
 
+# Минимальный баланс для генерации по моделям (в монетах)
+MIN_BALANCE_REQUIRED = {
+    "veo3": 280.0,
+    "veo3_fast": 70.0,
+    "grok-imagine/text-to-video": 30.0,
+    "seedream/4.5-text-to-image": 10.0,
+    "google/nano-banana-edit": 5.0,
+    "google/nano-banana": 5.0,
+    "nano-banana-pro": 20.0,
+}
+
 
 def get_generation_price(model: str) -> float:
     """Возвращает стоимость генерации для модели"""
     return MODEL_PRICES.get(model, 10.0)
+
+
+def get_min_balance_required(model: str) -> float:
+    """Возвращает минимальный баланс, необходимый для генерации"""
+    return MIN_BALANCE_REQUIRED.get(model, 10.0)
 
 
 @router.post("/upload-file")
@@ -149,6 +165,20 @@ async def generate_video(
     db_user = result.scalars().first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Проверяем баланс перед генерацией
+    min_balance = get_min_balance_required(model)
+    user_balance = float(db_user.balance) if db_user.balance else 0.0
+    if user_balance < min_balance:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": f"Недостаточно средств. Требуется минимум {min_balance} монет для модели {model}",
+                "required_balance": min_balance,
+                "current_balance": user_balance,
+                "model": model,
+            }
+        )
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
@@ -334,11 +364,25 @@ async def generate_image(
         if template.default_prompt and not prompt:
             prompt = template.default_prompt
     
-    # Получаем пользователя из БД (баланс не проверяем и не списываем - это делается в n8n)
+    # Получаем пользователя из БД
     result = await session.execute(select(User).where(User.tgid == user.tgid))
     db_user = result.scalars().first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Проверяем баланс перед генерацией
+    min_balance = get_min_balance_required(model)
+    user_balance = float(db_user.balance) if db_user.balance else 0.0
+    if user_balance < min_balance:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": f"Недостаточно средств. Требуется минимум {min_balance} монет для модели {model}",
+                "required_balance": min_balance,
+                "current_balance": user_balance,
+                "model": model,
+            }
+        )
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
