@@ -27,18 +27,9 @@ router = APIRouter(prefix="/generate", tags=["generate"])
 # Стоимость генерации по моделям (в монетах)
 MODEL_PRICES = {
     "google/nano-banana-edit": 5.0,
-    "google/nano-banana": 5.0,
-    "nano-banana-pro": 10.0,  # Как в bot.txt
-    "google/pro-image-to-image": 10.0,  # Алиас для обратной совместимости
-    "flux2/pro-image-to-image": 15.0,
-    "flux2/pro-text-to-image": 15.0,
-    "flux2/flex-image-to-image": 12.0,
-    "flux2/flex-text-to-image": 12.0,
-    "bytedance/seedream-v4-text-to-image": 10.0,  # Как в bot.txt
-    "bytedance/seedream-v4-edit": 10.0,  # Как в bot.txt
+    "google/nano-banana": 5.0,  # Используется когда нет фото для edit модели
+    "nano-banana-pro": 10.0,
     "seedream/4.5-text-to-image": 10.0,
-    "seedream/4.5-edit": 10.0,
-    "gpt4o-image": 12.0,
 }
 
 
@@ -69,7 +60,7 @@ async def upload_file(
 
 @router.get("/models", response_model=list[schemas.ModelInfo])
 async def list_models():
-    # Модели точно как в bot.txt и документации
+    # Оставляем только банану обычную, про и сидрим 4.5
     models = [
         schemas.ModelInfo(
             id="google/nano-banana-edit",
@@ -86,33 +77,9 @@ async def list_models():
             default_output_format="png",
         ),
         schemas.ModelInfo(
-            id="bytedance/seedream-v4-text-to-image",
-            title="Seedream 4.0",
-            description="Высококачественная генерация изображений",
-            supports_output_format=True,
-        ),
-        schemas.ModelInfo(
             id="seedream/4.5-text-to-image",
             title="Seedream 4.5",
             description="Новейшая модель Seedream 4.5",
-            supports_output_format=True,
-        ),
-        schemas.ModelInfo(
-            id="gpt4o-image",
-            title="GPT-4o",
-            description="Новейшая модель от OpenAI для генерации изображений",
-            supports_output_format=True,
-        ),
-        schemas.ModelInfo(
-            id="flux2/pro-text-to-image",
-            title="Flux 2 Pro",
-            description="Мощная модель Flux 2 Pro для генерации из текста",
-            supports_output_format=True,
-        ),
-        schemas.ModelInfo(
-            id="flux2/flex-text-to-image",
-            title="Flux 2 Flex",
-            description="Гибкая модель Flux 2 Flex для генерации из текста",
             supports_output_format=True,
         ),
     ]
@@ -153,16 +120,11 @@ async def generate_image(
         if template.default_prompt and not prompt:
             prompt = template.default_prompt
     
-    # Проверка баланса
-    price = get_generation_price(model)
+    # Получаем пользователя из БД (баланс не проверяем и не списываем - это делается в n8n)
     result = await session.execute(select(User).where(User.tgid == user.tgid))
     db_user = result.scalars().first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    if float(db_user.balance) < price:
-        raise HTTPException(
-            status_code=402, detail=f"Insufficient balance. Required: {price}, available: {float(db_user.balance)}"
-        )
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
@@ -286,8 +248,7 @@ async def generate_image(
         logger.error(f"Unexpected error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal error: {str(exc)}")
     
-    # Списание баланса после успешного создания задачи
-    db_user.balance = float(db_user.balance) - price
+    # Баланс не списываем - это делается в n8n
     gen = Generation(
         tgid=user.tgid,
         template_id=template.id if template else None,
@@ -301,7 +262,6 @@ async def generate_image(
     )
     session.add(gen)
     await session.commit()
-    await session.refresh(db_user)
     await session.refresh(gen)
     return {"generation_id": str(gen.id), "task_id": task_id, "status": gen.status}
 
