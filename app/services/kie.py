@@ -205,6 +205,7 @@ async def build_payload_for_model(
     aspect_ratio: Optional[str],
     resolution: Optional[str],
     output_format: str,
+    quality: Optional[str] = None,  # Для Seedream 4.5: basic или high
     image_urls: Optional[Iterable[str]] = None,
 ) -> tuple[Dict[str, Any], bool]:
     """
@@ -335,29 +336,56 @@ async def build_payload_for_model(
             },
         }
     elif model == "bytedance/seedream-v4-text-to-image" or model == "seedream/4.5-text-to-image":
-        # Seedream - точно как в bot.txt
-        # В bot.txt используется bytedance/seedream-v4-text-to-image
-        payload = {
-            "model": "bytedance/seedream-v4-text-to-image" if "v4" in model else model,
-            "input": {
-                "prompt": prompt[:5000],
-                "image_size": image_size,
-                "output_format": output_format or "png",
-            },
-        }
+        # Seedream 4.5 Text-to-Image - по документации API
+        # Для v4 используем старый формат, для 4.5 - новый
+        if "4.5" in model:
+            # Seedream 4.5 - используем aspect_ratio и quality
+            payload_input = {
+                "prompt": prompt[:3000],  # Макс 3000 по документации
+                "aspect_ratio": aspect_ratio or "1:1",
+                "quality": quality or "basic",  # basic или high
+            }
+            payload = {
+                "model": model,
+                "input": payload_input,
+            }
+        else:
+            # Seedream v4 - старый формат
+            payload = {
+                "model": "bytedance/seedream-v4-text-to-image",
+                "input": {
+                    "prompt": prompt[:5000],
+                    "image_size": image_size,
+                    "output_format": output_format or "png",
+                },
+            }
     elif model == "bytedance/seedream-v4-edit" or model == "seedream/4.5-edit":
-        # Seedream Edit - точно как в bot.txt
-        # В bot.txt используется bytedance/seedream-v4-edit
-        payload = {
-            "model": "bytedance/seedream-v4-edit" if "v4" in model else model,
-            "input": {
-                "prompt": prompt[:5000],
-                "image_size": image_size,
-                "output_format": output_format or "png",
-            },
-        }
-        if image_urls_list:
-            payload["input"]["image_urls"] = image_urls_list[:5]
+        # Seedream 4.5 Edit - по документации API
+        if "4.5" in model:
+            # Seedream 4.5 Edit - используем aspect_ratio, quality и image_urls (до 14)
+            payload_input = {
+                "prompt": prompt[:3000],  # Макс 3000 по документации
+                "aspect_ratio": aspect_ratio or "1:1",
+                "quality": quality or "basic",  # basic или high
+            }
+            if image_urls_list:
+                payload_input["image_urls"] = image_urls_list[:14]  # До 14 по документации
+            payload = {
+                "model": model,
+                "input": payload_input,
+            }
+        else:
+            # Seedream v4 Edit - старый формат
+            payload = {
+                "model": "bytedance/seedream-v4-edit",
+                "input": {
+                    "prompt": prompt[:5000],
+                    "image_size": image_size,
+                    "output_format": output_format or "png",
+                },
+            }
+            if image_urls_list:
+                payload["input"]["image_urls"] = image_urls_list[:5]
     else:
         # Fallback для неизвестных моделей
         payload = {

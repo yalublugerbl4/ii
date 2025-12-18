@@ -94,6 +94,7 @@ async def generate_image(
     aspect_ratio: Optional[str] = Form("auto"),
     resolution: Optional[str] = Form(None),
     output_format: str = Form("png"),
+    quality: Optional[str] = Form(None),  # Для Seedream 4.5: basic или high
     template_id: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
     user=Depends(get_current_user),
@@ -166,6 +167,7 @@ async def generate_image(
             "aspect_ratio": aspect_ratio,
             "resolution": resolution or None,  # Убеждаемся что None, а не пустая строка
             "output_format": output_format,
+            "quality": quality or None,  # Для Seedream 4.5: basic или high
             "image_urls": final_image_urls,
             "user_tgid": user.tgid,
             "user_id": str(user.id) if user.id else None,  # Конвертируем UUID в строку
@@ -220,6 +222,7 @@ async def generate_image(
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             output_format=output_format,
+            quality=quality,
             image_urls=final_image_urls,
         )
         logger.info(f"Payload built, is_gpt4o: {is_gpt4o}")
