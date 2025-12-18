@@ -198,6 +198,106 @@ def extract_result_url(record: dict) -> Optional[str]:
     return None
 
 
+def extract_veo_result_url(record: dict) -> Optional[str]:
+    """Извлекает URL результата из ответа Veo 3.1 API"""
+    if not isinstance(record, dict):
+        logger.warning("extract_veo_result_url: record is not a dict")
+        return None
+    
+    logger.info(f"extract_veo_result_url: searching in record keys: {list(record.keys())}")
+    
+    data = record.get("data") or {}
+    info = data.get("info") or {}
+    
+    # Veo 3.1 возвращает resultUrls как строку JSON массива
+    result_urls_str = info.get("resultUrls") or data.get("resultUrls")
+    if isinstance(result_urls_str, str):
+        try:
+            result_urls = json.loads(result_urls_str)
+            if isinstance(result_urls, list) and len(result_urls) > 0:
+                first_url = result_urls[0]
+                if isinstance(first_url, str) and first_url.startswith("http"):
+                    logger.info(f"extract_veo_result_url: found URL in resultUrls: {first_url}")
+                    return first_url
+        except Exception as e:
+            logger.warning(f"extract_veo_result_url: failed to parse resultUrls JSON: {e}")
+    elif isinstance(result_urls_str, list) and len(result_urls_str) > 0:
+        first_url = result_urls_str[0]
+        if isinstance(first_url, str) and first_url.startswith("http"):
+            logger.info(f"extract_veo_result_url: found URL in resultUrls list: {first_url}")
+            return first_url
+    
+    logger.warning(f"extract_veo_result_url: no URL found in response")
+    return None
+
+
+async def create_veo_task(
+    prompt: str,
+    model: str,  # veo3 или veo3_fast
+    aspect_ratio: Optional[str] = None,  # 16:9, 9:16, Auto
+    generation_type: Optional[str] = None,  # TEXT_2_VIDEO, FIRST_AND_LAST_FRAMES_2_VIDEO, REFERENCE_2_VIDEO
+    image_urls: Optional[List[str]] = None,
+    seeds: Optional[int] = None,
+    enable_translation: bool = True,
+    watermark: Optional[str] = None,
+) -> str:
+    """Создать задачу для Veo 3.1"""
+    url = f"{settings.kie_api_base}/api/v1/veo/generate"
+    headers = {
+        "Authorization": f"Bearer {settings.kie_api_key}",
+        "Content-Type": "application/json",
+    }
+    
+    payload: Dict[str, Any] = {
+        "prompt": prompt[:6000],
+        "model": model,
+        "enableTranslation": enable_translation,
+    }
+    
+    if aspect_ratio:
+        payload["aspectRatio"] = aspect_ratio
+    
+    if generation_type:
+        payload["generationType"] = generation_type
+    
+    if image_urls:
+        payload["imageUrls"] = image_urls
+    
+    if seeds is not None and 10000 <= seeds <= 99999:
+        payload["seeds"] = seeds
+    
+    if watermark:
+        payload["watermark"] = watermark
+    
+    if settings.kie_callback_url:
+        payload["callBackUrl"] = settings.kie_callback_url
+    
+    logger.info(f"Creating Veo 3.1 task with payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+    
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(url, headers=headers, content=json.dumps(payload))
+    
+    try:
+        data = resp.json()
+    except Exception:
+        error_text = resp.text[:1000] if hasattr(resp, 'text') else str(resp.content[:1000])
+        logger.error(f"Failed to parse Veo response: status={resp.status_code}, text={error_text}")
+        raise KieError(f"Create Veo task failed: HTTP {resp.status_code}")
+    
+    logger.info(f"Veo task creation response (code={data.get('code')}): {json.dumps(data, indent=2, ensure_ascii=False)}")
+    
+    if not (isinstance(data, dict) and str(data.get("code")) == "200"):
+        error_msg = data.get("msg") or str(data)
+        logger.error(f"Veo API error: code={data.get('code')}, msg={error_msg}, full_response={json.dumps(data, ensure_ascii=False)}")
+        raise KieError(f"Create Veo task failed (code {data.get('code')}): {error_msg}")
+    
+    task_id = data.get("data", {}).get("taskId")
+    if not task_id:
+        raise KieError(f"Create Veo task missing taskId: {data}")
+    
+    return str(task_id)
+
+
 async def build_payload_for_model(
     *,
     model: str,

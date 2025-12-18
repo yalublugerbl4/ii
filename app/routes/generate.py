@@ -16,7 +16,9 @@ from ..services.kie import (
     build_payload_for_model,
     create_gpt4o_task,
     create_task,
+    create_veo_task,
     extract_result_url,
+    extract_veo_result_url,
     poll_task,
     upload_file_stream,
 )
@@ -97,6 +99,20 @@ async def list_video_models():
             modes=["video"],
             supports_output_format=False,
         ),
+        schemas.ModelInfo(
+            id="veo3",
+            title="Veo 3.1 Quality",
+            description="Высококачественная модель Veo 3.1",
+            modes=["video"],
+            supports_output_format=False,
+        ),
+        schemas.ModelInfo(
+            id="veo3_fast",
+            title="Veo 3.1 Fast",
+            description="Быстрая модель Veo 3.1",
+            modes=["video"],
+            supports_output_format=False,
+        ),
     ]
     return models
 
@@ -105,10 +121,14 @@ async def list_video_models():
 async def generate_video(
     request: Request,
     prompt: str = Form(...),
-    model: str = Form(...),  # grok-imagine/text-to-video или grok-imagine/image-to-video
-    aspect_ratio: Optional[str] = Form(None),  # Grok Imagine не поддерживает выбор соотношения сторон
-    mode: Optional[str] = Form("normal"),  # normal, fun, spicy
+    model: str = Form(...),  # grok-imagine/text-to-video, veo3, veo3_fast
+    aspect_ratio: Optional[str] = Form(None),  # Для Grok: 2:3, 3:2, 1:1. Для Veo: 16:9, 9:16, Auto
+    mode: Optional[str] = Form(None),  # Для Grok: normal, fun, spicy. Для Veo: generation_type
     files: Optional[List[UploadFile]] = File(None),
+    generation_type: Optional[str] = Form(None),  # Для Veo: TEXT_2_VIDEO, FIRST_AND_LAST_FRAMES_2_VIDEO, REFERENCE_2_VIDEO
+    seeds: Optional[int] = Form(None),  # Для Veo: 10000-99999
+    enable_translation: Optional[bool] = Form(True),  # Для Veo
+    watermark: Optional[str] = Form(None),  # Для Veo
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -149,6 +169,9 @@ async def generate_video(
     
     logger.info(f"Total image URLs: {len(final_image_urls)}")
     
+    # Определяем, является ли модель Veo 3.1
+    is_veo = model in ("veo3", "veo3_fast")
+    
     # Проверяем, есть ли вебхуки n8n
     n8n_webhooks = None
     if settings.n8n_webhook_urls:
@@ -162,15 +185,30 @@ async def generate_video(
         webhook_data = {
             "prompt": prompt,
             "model": model,
-            "mode": mode or "normal",
             "image_urls": final_image_urls,
             "user_tgid": user.tgid,
             "user_id": str(user.id) if user.id else None,
             "template_id": None,
         }
-        # aspect_ratio передаем только если нет фото (text-to-video)
-        if aspect_ratio and len(final_image_urls) == 0:
-            webhook_data["aspect_ratio"] = aspect_ratio
+        
+        if is_veo:
+            # Параметры для Veo 3.1
+            if aspect_ratio:
+                webhook_data["aspect_ratio"] = aspect_ratio
+            if generation_type:
+                webhook_data["generation_type"] = generation_type
+            if seeds is not None:
+                webhook_data["seeds"] = seeds
+            if enable_translation is not None:
+                webhook_data["enable_translation"] = enable_translation
+            if watermark:
+                webhook_data["watermark"] = watermark
+        else:
+            # Параметры для Grok Imagine
+            webhook_data["mode"] = mode or "normal"
+            # aspect_ratio передаем только если нет фото (text-to-video)
+            if aspect_ratio and len(final_image_urls) == 0:
+                webhook_data["aspect_ratio"] = aspect_ratio
         
         webhook_errors = []
         for webhook_url in n8n_webhooks:
@@ -433,8 +471,8 @@ async def generate_image(
         template_id=template.id if template else None,
         model=model,
         aspect_ratio=aspect_ratio,
-        resolution=resolution,
-        output_format=output_format,
+        resolution=None,
+        output_format="mp4",
         prompt=prompt,
         status="queued",
         kie_task_id=task_id,
@@ -463,8 +501,10 @@ async def poll_generation(
     import logging
     logger = logging.getLogger(__name__)
     
+    is_veo = gen.model in ("veo3", "veo3_fast")
     is_gpt4o = gen.model == "gpt4o-image"
-    logger.info(f"Polling task {gen.kie_task_id} for generation {gen.id}, is_gpt4o={is_gpt4o}")
+    logger.info(f"Polling task {gen.kie_task_id} for generation {gen.id}, is_veo={is_veo}, is_gpt4o={is_gpt4o}")
+    
     data = await poll_task(gen.kie_task_id, is_gpt4o=is_gpt4o)
     logger.info(f"Poll response for task {gen.kie_task_id}: {json.dumps(data, indent=2, ensure_ascii=False)}")
     
@@ -473,8 +513,13 @@ async def poll_generation(
         gen.status = str(status).lower()
         logger.info(f"Status updated to: {gen.status}")
     
-    url = extract_result_url(data)
-    logger.info(f"Extracted result URL: {url}")
+    # Используем extract_veo_result_url для Veo 3.1, иначе extract_result_url
+    if is_veo:
+        url = extract_veo_result_url(data)
+        logger.info(f"Extracted Veo result URL: {url}")
+    else:
+        url = extract_result_url(data)
+        logger.info(f"Extracted result URL: {url}")
     if url:
         gen.result_url = url
         gen.status = "done"
