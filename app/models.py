@@ -14,6 +14,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tgid = Column(BigInteger, unique=True, nullable=False, index=True)
     balance = Column(Numeric(10, 2), default=0.0, nullable=False)
+    email = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

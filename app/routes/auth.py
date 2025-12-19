@@ -1,4 +1,6 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -8,6 +10,10 @@ from ..db import get_session
 from ..models import Admin, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class UpdateEmailRequest(BaseModel):
+    email: Optional[EmailStr] = None
 
 
 @router.get("/me", response_model=schemas.UserOut)
@@ -20,7 +26,11 @@ async def get_me(
     db_user = result.scalars().first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    return schemas.UserOut(tgid=db_user.tgid, balance=float(db_user.balance))
+    return schemas.UserOut(
+        tgid=db_user.tgid, 
+        balance=float(db_user.balance),
+        email=db_user.email
+    )
 
 
 @router.get("/check-admin")
@@ -66,7 +76,26 @@ async def auth_telegram(
     await session.refresh(user)
     return schemas.TelegramAuthResponse(
         accessToken=token,
-        user=schemas.UserOut(tgid=tgid, balance=float(user.balance)),
+        user=schemas.UserOut(tgid=tgid, balance=float(user.balance), email=user.email),
         isAdmin=is_admin,
     )
+
+
+@router.put("/email")
+async def update_email(
+    body: UpdateEmailRequest,
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновить email пользователя для получения чеков"""
+    result = await session.execute(select(User).where(User.tgid == user.tgid))
+    db_user = result.scalars().first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    db_user.email = body.email
+    await session.commit()
+    await session.refresh(db_user)
+    
+    return {"email": db_user.email}
 

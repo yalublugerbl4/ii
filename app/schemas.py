@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class UserOut(BaseModel):
     tgid: int
     balance: float = 0.0
+    email: Optional[str] = None
 
 
 class TemplateOut(BaseModel):

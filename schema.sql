@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tgid BIGINT UNIQUE NOT NULL,
     balance NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    email VARCHAR(255),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
