@@ -199,9 +199,6 @@ async def generate_video(
     
     logger.info(f"Total image URLs: {len(final_image_urls)}")
     
-    # Определяем, является ли модель Veo 3.1
-    is_veo = model in ("veo3", "veo3_fast")
-    
     # Проверяем, есть ли вебхуки n8n
     n8n_webhooks = None
     if settings.n8n_webhook_urls:
