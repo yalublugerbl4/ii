@@ -29,7 +29,7 @@ BALANCE_PLANS = {
     "base": {"label": "100 кредитов (100 руб)", "tokens": 100.0, "amount": 100.0},
     "neuro": {"label": "525 кредитов (499 руб)", "tokens": 525.0, "amount": 499.0},
     "vip": {"label": "1150 кредитов (999 руб)", "tokens": 1150.0, "amount": 999.0},
-    "top": {"label": "1999 кредитов (1999 руб)", "tokens": 1999.0, "amount": 1999.0},
+    "top": {"label": "2400 кредитов (1999 руб)", "tokens": 2400.0, "amount": 1999.0},
     "premium": {"label": "6500 кредитов (4999 руб)", "tokens": 6500.0, "amount": 4999.0},
 }
 
