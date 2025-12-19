@@ -33,6 +33,7 @@ MODEL_PRICES = {
     "nano-banana-pro": 10.0,
     "seedream/4.5-text-to-image": 10.0,
     "recraft/remove-background": 5.0,
+    "recraft/crisp-upscale": 5.0,
 }
 
 # Минимальный баланс для генерации по моделям (в кредитах)
@@ -770,6 +771,154 @@ async def remove_background(
     await session.refresh(gen)
     
     logger.info(f"Remove background generation {gen.id} created with task {task_id}")
+    return {"generation_id": str(gen.id), "status": "queued", "task_id": task_id}
+
+
+@router.post("/upscale")
+async def upscale_image(
+    request: Request,
+    files: Optional[List[UploadFile]] = File(None),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Улучшение качества изображения (Crisp Upscale)"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    model = "recraft/crisp-upscale"
+    
+    # Получаем image_urls из form напрямую
+    form = await request.form()
+    image_urls_list = form.getlist("image_urls")
+    
+    # Нормализуем files - если None, делаем пустой список
+    files_list = files if files else []
+    
+    logger.info(f"upscale_image called: files_count={len(files_list)}, image_urls_count={len(image_urls_list)}")
+    
+    # Используем переданные image_urls или загружаем файлы
+    final_image_urls: list[str] = []
+    
+    if image_urls_list:
+        # Используем уже загруженные URL
+        final_image_urls = list(image_urls_list)
+        logger.info(f"Using provided image_urls: {len(final_image_urls)} URLs")
+    elif files_list:
+        # Загружаем файлы
+        if len(files_list) > 1:
+            raise HTTPException(status_code=400, detail="Можно загрузить только одно изображение")
+        
+        file = files_list[0]
+        try:
+            image_url = await upload_file_stream(file, upload_path="images/upscale")
+            final_image_urls.append(image_url)
+            logger.info(f"File uploaded for upscale: {image_url}")
+        except Exception as e:
+            logger.error(f"Failed to upload file for upscale: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка загрузки файла: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Необходимо загрузить хотя бы одно изображение")
+    
+    if len(final_image_urls) == 0:
+        raise HTTPException(status_code=400, detail="Необходимо загрузить хотя бы одно изображение")
+    
+    if len(final_image_urls) > 1:
+        raise HTTPException(status_code=400, detail="Можно загрузить только одно изображение")
+    
+    image_url = final_image_urls[0]
+    
+    # Проверяем, есть ли вебхуки n8n
+    n8n_webhooks = None
+    if settings.n8n_webhook_urls:
+        n8n_webhooks = [url.strip() for url in settings.n8n_webhook_urls.split(",") if url.strip()]
+        logger.info(f"Found {len(n8n_webhooks)} n8n webhook(s)")
+    
+    if n8n_webhooks:
+        # Отправляем на вебхуки n8n
+        logger.info("Sending upscale data to n8n webhooks instead of KIE")
+        
+        webhook_data = {
+            "model": model,
+            "image_urls": [image_url],
+            "user_tgid": user.tgid,
+            "user_id": str(user.id) if user.id else None,
+            "template_id": None,
+        }
+        
+        webhook_errors = []
+        for webhook_url in n8n_webhooks:
+            try:
+                logger.info(f"Sending to n8n webhook: {webhook_url}")
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(webhook_url, json=webhook_data)
+                    response.raise_for_status()
+                    logger.info(f"Successfully sent to webhook: {webhook_url}, status: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Failed to send to webhook {webhook_url}: {e}", exc_info=True)
+                webhook_errors.append(f"{webhook_url}: {str(e)}")
+        
+        if webhook_errors and len(webhook_errors) == len(n8n_webhooks):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to send to all webhooks: {'; '.join(webhook_errors)}"
+            )
+        
+        # Создаем запись в БД
+        gen = Generation(
+            tgid=user.tgid,
+            template_id=None,
+            model=model,
+            aspect_ratio=None,
+            resolution=None,
+            output_format="png",
+            prompt="",  # Для upscale prompt не нужен
+            status="sent_to_n8n",
+            kie_task_id=None,
+        )
+        session.add(gen)
+        await session.commit()
+        await session.refresh(gen)
+        
+        logger.info(f"Upscale generation {gen.id} sent to n8n webhooks successfully")
+        return {"generation_id": str(gen.id), "status": "sent_to_n8n", "message": "Data sent to n8n"}
+    
+    # Старая логика через KIE (если вебхуки не настроены)
+    # Создаем задачу в KIE API
+    payload = {
+        "model": model,
+        "input": {
+            "image": image_url,
+        },
+    }
+    
+    if settings.kie_callback_url:
+        payload["callBackUrl"] = settings.kie_callback_url
+        logger.info(f"Added callback URL: {settings.kie_callback_url}")
+    
+    try:
+        task_id = await create_task(payload)
+        logger.info(f"Upscale task created: {task_id}")
+    except Exception as e:
+        logger.error(f"Failed to create upscale task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка создания задачи: {str(e)}")
+    
+    # Создаем запись в БД
+    gen = Generation(
+        tgid=user.tgid,
+        template_id=None,
+        model=model,
+        aspect_ratio=None,
+        resolution=None,
+        output_format="png",
+        prompt="",  # Для upscale prompt не нужен
+        status="queued",
+        kie_task_id=task_id,
+    )
+    session.add(gen)
+    await session.commit()
+    await session.refresh(gen)
+    
+    logger.info(f"Upscale generation {gen.id} created with task {task_id}")
     return {"generation_id": str(gen.id), "status": "queued", "task_id": task_id}
 
 
