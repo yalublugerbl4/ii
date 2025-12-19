@@ -26,11 +26,11 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 
 # Планы пополнения баланса
 BALANCE_PLANS = {
-    "trial": {"label": "Пробные токены: 2 шт (120 руб)", "tokens": 2.0, "amount": 120.0},
-    "base": {"label": "База: 12 токенов (470 руб)", "tokens": 12.0, "amount": 470.0},
-    "neuro": {"label": "Нейро: 30 токенов (900 руб)", "tokens": 30.0, "amount": 900.0},
-    "vip": {"label": "Вип: 120 токенов (3400 руб)", "tokens": 120.0, "amount": 3400.0},
-    "top": {"label": "Топ: 600 токенов (16000 руб)", "tokens": 600.0, "amount": 16000.0},
+    "base": {"label": "100 кредитов (100 руб)", "tokens": 100.0, "amount": 100.0},
+    "neuro": {"label": "525 кредитов (499 руб)", "tokens": 525.0, "amount": 499.0},
+    "vip": {"label": "1150 кредитов (999 руб)", "tokens": 1150.0, "amount": 999.0},
+    "top": {"label": "1999 кредитов (1999 руб)", "tokens": 1999.0, "amount": 1999.0},
+    "premium": {"label": "6500 кредитов (4999 руб)", "tokens": 6500.0, "amount": 4999.0},
 }
 
 
