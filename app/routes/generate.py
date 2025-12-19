@@ -32,6 +32,7 @@ MODEL_PRICES = {
     "google/nano-banana": 5.0,  # Используется когда нет фото для edit модели
     "nano-banana-pro": 10.0,
     "seedream/4.5-text-to-image": 10.0,
+    "recraft/remove-background": 5.0,
 }
 
 # Минимальный баланс для генерации по моделям (в кредитах)
@@ -43,6 +44,7 @@ MIN_BALANCE_REQUIRED = {
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,
     "nano-banana-pro": 20.0,
+    "recraft/remove-background": 5.0,
 }
 
 
@@ -619,6 +621,89 @@ async def proxy_image(
     except Exception as e:
         logger.error(f"Failed to proxy image from {url}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
+
+
+@router.post("/remove-background")
+async def remove_background(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Удаление фона с изображения"""
+    model = "recraft/remove-background"
+    
+    # Проверяем баланс
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    min_balance = MIN_BALANCE_REQUIRED.get(model, 5.0)
+    user_balance = float(db_user.balance) if db_user.balance else 0.0
+    if user_balance < min_balance:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": f"Недостаточно средств. Требуется {min_balance} кредитов для удаления фона",
+                "required_balance": min_balance,
+                "current_balance": user_balance,
+                "model": model,
+            }
+        )
+    
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=400, detail="Необходимо загрузить хотя бы одно изображение")
+    
+    if len(files) > 1:
+        raise HTTPException(status_code=400, detail="Можно загрузить только одно изображение")
+    
+    file = files[0]
+    
+    # Загружаем файл
+    try:
+        image_url = await upload_file_stream(file, upload_path="images/remove-bg")
+        logger.info(f"File uploaded for remove-background: {image_url}")
+    except Exception as e:
+        logger.error(f"Failed to upload file for remove-background: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка загрузки файла: {str(e)}")
+    
+    # Создаем задачу в KIE API
+    payload = {
+        "model": model,
+        "input": {
+            "image": image_url,
+        },
+    }
+    
+    if settings.kie_callback_url:
+        payload["callBackUrl"] = settings.kie_callback_url
+        logger.info(f"Added callback URL: {settings.kie_callback_url}")
+    
+    try:
+        task_id = await create_task(payload)
+        logger.info(f"Remove background task created: {task_id}")
+    except Exception as e:
+        logger.error(f"Failed to create remove-background task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка создания задачи: {str(e)}")
+    
+    # Создаем запись в БД
+    gen = Generation(
+        tgid=user.tgid,
+        template_id=None,
+        model=model,
+        aspect_ratio=None,
+        resolution=None,
+        output_format="png",
+        prompt="",  # Для remove-background prompt не нужен
+        status="queued",
+        kie_task_id=task_id,
+    )
+    session.add(gen)
+    await session.commit()
+    await session.refresh(gen)
+    
+    logger.info(f"Remove background generation {gen.id} created with task {task_id}")
+    return {"generation_id": str(gen.id), "status": "queued", "task_id": task_id}
 
 
 
