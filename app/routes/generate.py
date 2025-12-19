@@ -26,7 +26,7 @@ from ..settings import settings
 
 router = APIRouter(prefix="/generate", tags=["generate"])
 
-# Стоимость генерации по моделям (в монетах)
+# Стоимость генерации по моделям (в кредитах)
 MODEL_PRICES = {
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,  # Используется когда нет фото для edit модели
@@ -34,7 +34,7 @@ MODEL_PRICES = {
     "seedream/4.5-text-to-image": 10.0,
 }
 
-# Минимальный баланс для генерации по моделям (в монетах)
+# Минимальный баланс для генерации по моделям (в кредитах)
 MIN_BALANCE_REQUIRED = {
     "veo3": 280.0,
     "veo3_fast": 70.0,
@@ -173,7 +173,7 @@ async def generate_video(
         raise HTTPException(
             status_code=402,
             detail={
-                "message": f"Недостаточно средств. Требуется минимум {min_balance} монет для модели {model}",
+                "message": f"Недостаточно средств. Требуется {min_balance} кредитов для модели {model}",
                 "required_balance": min_balance,
                 "current_balance": user_balance,
                 "model": model,
@@ -374,7 +374,7 @@ async def generate_image(
         raise HTTPException(
             status_code=402,
             detail={
-                "message": f"Недостаточно средств. Требуется минимум {min_balance} монет для модели {model}",
+                "message": f"Недостаточно средств. Требуется {min_balance} кредитов для модели {model}",
                 "required_balance": min_balance,
                 "current_balance": user_balance,
                 "model": model,
