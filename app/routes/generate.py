@@ -626,47 +626,114 @@ async def proxy_image(
 @router.post("/remove-background")
 async def remove_background(
     request: Request,
-    files: List[UploadFile] = File(...),
+    files: Optional[List[UploadFile]] = File(None),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Удаление фона с изображения"""
+    """Удаление фона с изображения (бесплатно)"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     model = "recraft/remove-background"
     
-    # Проверяем баланс
-    db_user = await session.get(User, user.id)
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # Удаление фона бесплатно - проверка баланса не требуется
     
-    min_balance = MIN_BALANCE_REQUIRED.get(model, 5.0)
-    user_balance = float(db_user.balance) if db_user.balance else 0.0
-    if user_balance < min_balance:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "message": f"Недостаточно средств. Требуется {min_balance} кредитов для удаления фона",
-                "required_balance": min_balance,
-                "current_balance": user_balance,
-                "model": model,
-            }
-        )
+    # Получаем image_urls из form напрямую
+    form = await request.form()
+    image_urls_list = form.getlist("image_urls")
     
-    if not files or len(files) == 0:
+    # Нормализуем files - если None, делаем пустой список
+    files_list = files if files else []
+    
+    logger.info(f"remove_background called: files_count={len(files_list)}, image_urls_count={len(image_urls_list)}")
+    
+    # Используем переданные image_urls или загружаем файлы
+    final_image_urls: list[str] = []
+    
+    if image_urls_list:
+        # Используем уже загруженные URL
+        final_image_urls = list(image_urls_list)
+        logger.info(f"Using provided image_urls: {len(final_image_urls)} URLs")
+    elif files_list:
+        # Загружаем файлы
+        if len(files_list) > 1:
+            raise HTTPException(status_code=400, detail="Можно загрузить только одно изображение")
+        
+        file = files_list[0]
+        try:
+            image_url = await upload_file_stream(file, upload_path="images/remove-bg")
+            final_image_urls.append(image_url)
+            logger.info(f"File uploaded for remove-background: {image_url}")
+        except Exception as e:
+            logger.error(f"Failed to upload file for remove-background: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка загрузки файла: {str(e)}")
+    else:
         raise HTTPException(status_code=400, detail="Необходимо загрузить хотя бы одно изображение")
     
-    if len(files) > 1:
+    if len(final_image_urls) == 0:
+        raise HTTPException(status_code=400, detail="Необходимо загрузить хотя бы одно изображение")
+    
+    if len(final_image_urls) > 1:
         raise HTTPException(status_code=400, detail="Можно загрузить только одно изображение")
     
-    file = files[0]
+    image_url = final_image_urls[0]
     
-    # Загружаем файл
-    try:
-        image_url = await upload_file_stream(file, upload_path="images/remove-bg")
-        logger.info(f"File uploaded for remove-background: {image_url}")
-    except Exception as e:
-        logger.error(f"Failed to upload file for remove-background: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ошибка загрузки файла: {str(e)}")
+    # Проверяем, есть ли вебхуки n8n
+    n8n_webhooks = None
+    if settings.n8n_webhook_urls:
+        n8n_webhooks = [url.strip() for url in settings.n8n_webhook_urls.split(",") if url.strip()]
+        logger.info(f"Found {len(n8n_webhooks)} n8n webhook(s)")
     
+    if n8n_webhooks:
+        # Отправляем на вебхуки n8n
+        logger.info("Sending remove-background data to n8n webhooks instead of KIE")
+        
+        webhook_data = {
+            "model": model,
+            "image_urls": [image_url],
+            "user_tgid": user.tgid,
+            "user_id": str(user.id) if user.id else None,
+            "template_id": None,
+        }
+        
+        webhook_errors = []
+        for webhook_url in n8n_webhooks:
+            try:
+                logger.info(f"Sending to n8n webhook: {webhook_url}")
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.post(webhook_url, json=webhook_data)
+                    response.raise_for_status()
+                    logger.info(f"Successfully sent to webhook: {webhook_url}, status: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Failed to send to webhook {webhook_url}: {e}", exc_info=True)
+                webhook_errors.append(f"{webhook_url}: {str(e)}")
+        
+        if webhook_errors and len(webhook_errors) == len(n8n_webhooks):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to send to all webhooks: {'; '.join(webhook_errors)}"
+            )
+        
+        # Создаем запись в БД
+        gen = Generation(
+            tgid=user.tgid,
+            template_id=None,
+            model=model,
+            aspect_ratio=None,
+            resolution=None,
+            output_format="png",
+            prompt="",  # Для remove-background prompt не нужен
+            status="sent_to_n8n",
+            kie_task_id=None,
+        )
+        session.add(gen)
+        await session.commit()
+        await session.refresh(gen)
+        
+        logger.info(f"Remove background generation {gen.id} sent to n8n webhooks successfully")
+        return {"generation_id": str(gen.id), "status": "sent_to_n8n", "message": "Data sent to n8n"}
+    
+    # Старая логика через KIE (если вебхуки не настроены)
     # Создаем задачу в KIE API
     payload = {
         "model": model,
