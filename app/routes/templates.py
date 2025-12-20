@@ -57,9 +57,9 @@ def optimize_image(image_data: bytes, max_width: int = 1200, max_height: int = 1
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
         
-        # Сохраняем в JPEG с оптимизацией
+        # Сохраняем в JPEG с оптимизацией (без progressive для более быстрой загрузки)
         output = BytesIO()
-        img.save(output, format='JPEG', quality=quality, optimize=True, progressive=True)
+        img.save(output, format='JPEG', quality=quality, optimize=True, progressive=False)
         output.seek(0)
         
         optimized_data = output.getvalue()
