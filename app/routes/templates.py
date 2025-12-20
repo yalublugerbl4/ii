@@ -154,63 +154,97 @@ async def upload_preview_from_url(
     url = request.url
     logger.info(f"Uploading preview from URL: {url}")
     
-    # Преобразуем ссылку Яндекс Диска, если нужно
-    converted_url = convert_yandex_disk_url(url)
-    logger.info(f"Converted URL: {converted_url}")
+    # Список URL для попыток загрузки
+    urls_to_try = []
     
-    try:
-        # Загружаем изображение по URL
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            response = await client.get(converted_url)
-            response.raise_for_status()
-            
-            # Проверяем, что это изображение
-            content_type = response.headers.get('content-type', '')
-            if not content_type.startswith('image/'):
-                # Если не изображение, пробуем оригинальную ссылку
-                logger.warning(f"Converted URL returned non-image content type: {content_type}, trying original URL")
-                response = await client.get(url, follow_redirects=True)
+    # Если это ссылка Яндекс Диска, пробуем несколько вариантов
+    if 'disk.yandex.ru/i/' in url or 'disk.yandex.ru/d/' in url:
+        # Извлекаем ID из ссылки
+        pattern_i = r'https?://disk\.yandex\.ru/i/([a-zA-Z0-9_-]+)'
+        pattern_d = r'https?://disk\.yandex\.ru/d/([a-zA-Z0-9_-]+)'
+        match_i = re.search(pattern_i, url)
+        match_d = re.search(pattern_d, url)
+        file_id = None
+        if match_i:
+            file_id = match_i.group(1)
+        elif match_d:
+            file_id = match_d.group(1)
+        
+        if file_id:
+            # Вариант 1: через getfile.dokpub.com
+            urls_to_try.append(f"https://getfile.dokpub.com/yandex/get/{file_id}")
+            # Вариант 2: через yadi.sk (старый формат)
+            urls_to_try.append(f"https://yadi.sk/i/{file_id}")
+            # Вариант 3: прямая ссылка на скачивание через API (если файл публичный)
+            urls_to_try.append(f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={url}")
+    
+    # Добавляем оригинальную ссылку в конец списка
+    urls_to_try.append(url)
+    
+    last_error = None
+    for attempt_url in urls_to_try:
+        try:
+            logger.info(f"Trying to download from: {attempt_url}")
+            # Загружаем изображение по URL
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                response = await client.get(attempt_url)
                 response.raise_for_status()
+                
+                # Проверяем, что это изображение
                 content_type = response.headers.get('content-type', '')
                 if not content_type.startswith('image/'):
-                    raise HTTPException(status_code=400, detail="URL does not point to an image")
-            
-            # Создаем временный файл из ответа
-            file_content = response.content
-            file_obj = BytesIO(file_content)
-            
-            # Определяем расширение файла
-            ext = 'jpg'
-            if 'png' in content_type:
-                ext = 'png'
-            elif 'gif' in content_type:
-                ext = 'gif'
-            elif 'webp' in content_type:
-                ext = 'webp'
-            
-            # Создаем UploadFile из содержимого
-            from fastapi import UploadFile
-            upload_file = UploadFile(
-                filename=f"preview.{ext}",
-                file=file_obj
-            )
-            
-            # Загружаем на KIE
-            path = await upload_file_stream(upload_file)
-            
-            # KIE возвращает полный URL или относительный путь
-            if path.startswith("http"):
-                final_url = path
-            else:
-                final_url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
-            
-            logger.info(f"Successfully uploaded to KIE: {final_url}")
-            return {"url": final_url}
-            
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error when uploading from URL: {e.response.status_code} - {e.response.text}")
-        raise HTTPException(status_code=400, detail=f"Failed to download image from URL: HTTP {e.response.status_code}")
-    except Exception as e:
-        logger.error(f"Failed to upload preview from URL: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=f"Failed to upload image from URL: {str(e)}")
+                    logger.warning(f"URL returned non-image content type: {content_type}")
+                    continue  # Пробуем следующий URL
+                
+                # Создаем временный файл из ответа
+                file_content = response.content
+                if len(file_content) == 0:
+                    logger.warning(f"Empty response from {attempt_url}")
+                    continue
+                
+                file_obj = BytesIO(file_content)
+                
+                # Определяем расширение файла
+                ext = 'jpg'
+                if 'png' in content_type:
+                    ext = 'png'
+                elif 'gif' in content_type:
+                    ext = 'gif'
+                elif 'webp' in content_type:
+                    ext = 'webp'
+                
+                # Создаем UploadFile из содержимого
+                from fastapi import UploadFile
+                upload_file = UploadFile(
+                    filename=f"preview.{ext}",
+                    file=file_obj
+                )
+                
+                # Загружаем на KIE
+                path = await upload_file_stream(upload_file)
+                
+                # KIE возвращает полный URL или относительный путь
+                if path.startswith("http"):
+                    final_url = path
+                else:
+                    final_url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
+                
+                logger.info(f"Successfully uploaded to KIE: {final_url}")
+                return {"url": final_url}
+                
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"HTTP error when trying {attempt_url}: {e.response.status_code}")
+            last_error = f"HTTP {e.response.status_code}"
+            continue  # Пробуем следующий URL
+        except Exception as e:
+            logger.warning(f"Error when trying {attempt_url}: {e}")
+            last_error = str(e)
+            continue  # Пробуем следующий URL
+    
+    # Если все попытки не удались, возвращаем ошибку
+    logger.error(f"All attempts failed. Last error: {last_error}")
+    raise HTTPException(
+        status_code=400, 
+        detail=f"Не удалось загрузить изображение с Яндекс Диска. Убедитесь, что файл имеет публичный доступ. Ошибка: {last_error}"
+    )
 
