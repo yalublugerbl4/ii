@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -22,11 +22,40 @@ class AddAdminRequest(BaseModel):
 
 @router.get("/me", response_model=schemas.UserOut)
 async def get_me(
+    request: Request,
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     r_tgid: Optional[int] = Query(None, description="Telegram ID пригласившего"),  # Реферальный tgid из query параметра
 ):
     """Получить текущего пользователя с балансом"""
+    # Пробуем получить start_param из initData (для параметра startapp)
+    start_param = None
+    try:
+        init_data = request.headers.get("x-telegram-initdata") or request.headers.get("X-Telegram-InitData") or request.headers.get("X-Telegram-Initdata")
+        if init_data:
+            import urllib.parse
+            if '%' in init_data:
+                init_data = urllib.parse.unquote(init_data)
+            pairs = init_data.split("&")
+            for p in pairs:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    if k == "start_param":
+                        start_param = urllib.parse.unquote(v)
+                        break
+    except Exception:
+        pass
+    
+    # Обрабатываем start_param (формат: r_tgid_123456789)
+    if start_param and start_param.startswith("r_tgid_"):
+        try:
+            tgid_str = start_param.replace("r_tgid_", "")
+            r_tgid_from_start = int(tgid_str)
+            if not r_tgid or r_tgid_from_start != r_tgid:
+                r_tgid = r_tgid_from_start
+        except (ValueError, AttributeError):
+            pass
+    
     result = await session.execute(select(User).where(User.tgid == user.tgid))
     db_user = result.scalars().first()
     if not db_user:
@@ -74,10 +103,18 @@ async def get_referral_link(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Формируем реферальную ссылку с r_tgid
+    # Формируем реферальную ссылку для открытия Mini App
     from ..settings import settings
-    frontend_url = getattr(settings, 'frontend_url', 'https://iiapp-66742.web.app')
-    referral_link = f"{frontend_url}?r_tgid={db_user.tgid}"
+    bot_username = getattr(settings, 'bot_username', None)
+    
+    if bot_username:
+        # Ссылка для открытия Mini App с параметром startapp
+        # Формат: https://t.me/bot_username?startapp=r_tgid_123456789
+        referral_link = f"https://t.me/{bot_username}?startapp=r_tgid_{db_user.tgid}"
+    else:
+        # Fallback: используем frontend_url если bot_username не указан
+        frontend_url = getattr(settings, 'frontend_url', 'https://iiapp-66742.web.app')
+        referral_link = f"{frontend_url}?r_tgid={db_user.tgid}"
     
     return {"referral_link": referral_link}
 
