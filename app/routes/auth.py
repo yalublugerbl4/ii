@@ -214,7 +214,7 @@ async def get_all_mini_app_links(
         {"id": "grok-imagine/text-to-video", "name": "Grok Imagine", "page": "generator/video"},
         {"id": "veo3", "name": "Veo 3.1 Quality", "page": "generator/video"},
         {"id": "veo3_fast", "name": "Veo 3.1 Fast", "page": "generator/video"},
-        {"id": "bytedance/v1-pro-fast-image-to-video", "name": "V1 Pro Fast", "page": "generator/video"},
+        {"id": "bytedance/v1-pro-fast-image-to-video", "name": "Seedance V1 Pro", "page": "generator/video"},
     ]
     
     for model in video_models:
