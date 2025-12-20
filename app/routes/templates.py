@@ -21,11 +21,12 @@ async def get_yandex_disk_direct_url(public_url: str) -> str:
     import urllib.parse
     
     try:
-        # URL-кодируем оригинальную ссылку
+        # URL-кодируем оригинальную ссылку (без safe символов, чтобы закодировать все)
         encoded_url = urllib.parse.quote(public_url, safe='')
         api_url = f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={encoded_url}"
         
-        logger.info(f"Requesting direct URL from Yandex Disk API: {api_url}")
+        logger.info(f"Requesting direct URL from Yandex Disk API for: {public_url}")
+        logger.info(f"API URL: {api_url}")
         
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(api_url)
@@ -41,7 +42,7 @@ async def get_yandex_disk_direct_url(public_url: str) -> str:
                 logger.warning(f"Yandex Disk API response missing 'href': {data}")
                 return public_url
     except Exception as e:
-        logger.error(f"Failed to get direct URL from Yandex Disk API: {e}")
+        logger.error(f"Failed to get direct URL from Yandex Disk API: {e}", exc_info=True)
         return public_url
 
 
@@ -63,32 +64,7 @@ def convert_yandex_disk_url(url: str) -> str:
 @router.get("", response_model=list[schemas.TemplateOut])
 async def list_templates(session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(Template).order_by(Template.created_at.desc()))
-    templates = result.scalars().all()
-    
-    # Преобразуем ссылки Яндекс Диска в прямые ссылки для отображения
-    import httpx
-    import urllib.parse
-    
-    for template in templates:
-        if template.preview_image_url and ('disk.yandex.ru/i/' in template.preview_image_url or 'disk.yandex.ru/d/' in template.preview_image_url):
-            try:
-                # Получаем прямую ссылку через API Яндекс Диска
-                encoded_url = urllib.parse.quote(template.preview_image_url, safe='')
-                api_url = f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={encoded_url}"
-                
-                async with httpx.AsyncClient(timeout=5) as client:
-                    response = await client.get(api_url)
-                    if response.status_code == 200:
-                        data = response.json()
-                        direct_url = data.get('href')
-                        if direct_url:
-                            template.preview_image_url = direct_url
-                            logger.info(f"Converted Yandex Disk URL to direct URL for template {template.id}")
-            except Exception as e:
-                logger.warning(f"Failed to get direct URL for template {template.id}: {e}")
-                # Оставляем оригинальную ссылку
-    
-    return templates
+    return result.scalars().all()
 
 
 @router.get("/{template_id}", response_model=schemas.TemplateOut)
@@ -97,29 +73,6 @@ async def get_template(template_id: str, session: AsyncSession = Depends(get_ses
     tpl = result.scalars().first()
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
-    
-    # Преобразуем ссылку Яндекс Диска в прямую ссылку для отображения
-    if tpl.preview_image_url and ('disk.yandex.ru/i/' in tpl.preview_image_url or 'disk.yandex.ru/d/' in tpl.preview_image_url):
-        try:
-            import httpx
-            import urllib.parse
-            
-            # Получаем прямую ссылку через API Яндекс Диска
-            encoded_url = urllib.parse.quote(tpl.preview_image_url, safe='')
-            api_url = f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={encoded_url}"
-            
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(api_url)
-                if response.status_code == 200:
-                    data = response.json()
-                    direct_url = data.get('href')
-                    if direct_url:
-                        tpl.preview_image_url = direct_url
-                        logger.info(f"Converted Yandex Disk URL to direct URL for template {tpl.id}")
-        except Exception as e:
-            logger.warning(f"Failed to get direct URL for template {tpl.id}: {e}")
-            # Оставляем оригинальную ссылку
-    
     return tpl
 
 
