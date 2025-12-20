@@ -10,6 +10,7 @@ from ..auth import get_current_user, require_admin
 from ..db import get_session
 from ..models import Template
 from ..services.kie import upload_file_stream
+from ..services.firebase_storage import upload_to_firebase_storage, upload_from_url_to_firebase_storage
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 logger = logging.getLogger(__name__)
@@ -139,14 +140,24 @@ async def upload_preview(
     file: UploadFile,
     _: None = Depends(require_admin),
 ):
-    path = await upload_file_stream(file)
-    # KIE возвращает полный URL или относительный путь
-    if path.startswith("http"):
-        url = path
-    else:
-        from ..settings import settings
-        url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
-    return {"url": url}
+    """Загрузить превью изображение в Firebase Storage"""
+    try:
+        url = await upload_to_firebase_storage(file, folder="template-previews")
+        return {"url": url}
+    except Exception as e:
+        logger.error(f"Failed to upload to Firebase Storage: {e}", exc_info=True)
+        # Fallback на KIE, если Firebase не настроен
+        try:
+            path = await upload_file_stream(file)
+            if path.startswith("http"):
+                url = path
+            else:
+                from ..settings import settings
+                url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
+            return {"url": url}
+        except Exception as fallback_error:
+            logger.error(f"Fallback to KIE also failed: {fallback_error}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 
 class PreviewUrlRequest(BaseModel):
@@ -158,16 +169,9 @@ async def upload_preview_from_url(
     request: PreviewUrlRequest,
     _: None = Depends(require_admin),
 ):
-    """Загрузить изображение по URL (например, с Яндекс Диска) и сохранить на KIE"""
-    import httpx
-    from ..settings import settings
-    from io import BytesIO
-    
+    """Загрузить изображение по URL и сохранить в Firebase Storage"""
     url = request.url
     logger.info(f"Uploading preview from URL: {url}")
-    
-    # Список URL для попыток загрузки
-    urls_to_try = []
     
     # Если это ссылка Яндекс Диска, получаем прямую ссылку через API
     if 'disk.yandex.ru/i/' in url or 'disk.yandex.ru/d/' in url:
@@ -175,80 +179,20 @@ async def upload_preview_from_url(
         try:
             direct_url = await get_yandex_disk_direct_url(url)
             if direct_url and direct_url != url:
-                urls_to_try.append(direct_url)
-                logger.info(f"Got direct URL from Yandex Disk API: {direct_url}")
-            else:
-                logger.warning("Failed to get direct URL, will try original URL")
+                url = direct_url
+                logger.info(f"Using direct URL from Yandex Disk API: {direct_url}")
         except Exception as e:
-            logger.error(f"Error getting direct URL from Yandex Disk API: {e}")
+            logger.warning(f"Error getting direct URL from Yandex Disk API: {e}, using original URL")
     
-    # Добавляем оригинальную ссылку в конец списка
-    urls_to_try.append(url)
-    
-    last_error = None
-    for attempt_url in urls_to_try:
-        try:
-            logger.info(f"Trying to download from: {attempt_url}")
-            # Загружаем изображение по URL
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                response = await client.get(attempt_url)
-                response.raise_for_status()
-                
-                # Проверяем, что это изображение
-                content_type = response.headers.get('content-type', '')
-                if not content_type.startswith('image/'):
-                    logger.warning(f"URL returned non-image content type: {content_type}")
-                    continue  # Пробуем следующий URL
-                
-                # Создаем временный файл из ответа
-                file_content = response.content
-                if len(file_content) == 0:
-                    logger.warning(f"Empty response from {attempt_url}")
-                    continue
-                
-                file_obj = BytesIO(file_content)
-                
-                # Определяем расширение файла
-                ext = 'jpg'
-                if 'png' in content_type:
-                    ext = 'png'
-                elif 'gif' in content_type:
-                    ext = 'gif'
-                elif 'webp' in content_type:
-                    ext = 'webp'
-                
-                # Создаем UploadFile из содержимого
-                from fastapi import UploadFile
-                upload_file = UploadFile(
-                    filename=f"preview.{ext}",
-                    file=file_obj
-                )
-                
-                # Загружаем на KIE
-                path = await upload_file_stream(upload_file)
-                
-                # KIE возвращает полный URL или относительный путь
-                if path.startswith("http"):
-                    final_url = path
-                else:
-                    final_url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
-                
-                logger.info(f"Successfully uploaded to KIE: {final_url}")
-                return {"url": final_url}
-                
-        except httpx.HTTPStatusError as e:
-            logger.warning(f"HTTP error when trying {attempt_url}: {e.response.status_code}")
-            last_error = f"HTTP {e.response.status_code}"
-            continue  # Пробуем следующий URL
-        except Exception as e:
-            logger.warning(f"Error when trying {attempt_url}: {e}")
-            last_error = str(e)
-            continue  # Пробуем следующий URL
-    
-    # Если все попытки не удались, возвращаем ошибку
-    logger.error(f"All attempts failed. Last error: {last_error}")
-    raise HTTPException(
-        status_code=400, 
-        detail=f"Не удалось загрузить изображение с Яндекс Диска. Убедитесь, что файл имеет публичный доступ. Ошибка: {last_error}"
-    )
+    try:
+        # Загружаем в Firebase Storage
+        final_url = await upload_from_url_to_firebase_storage(url, folder="template-previews")
+        logger.info(f"Successfully uploaded to Firebase Storage: {final_url}")
+        return {"url": final_url}
+    except Exception as e:
+        logger.error(f"Failed to upload to Firebase Storage: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Не удалось загрузить изображение: {str(e)}"
+        )
 
