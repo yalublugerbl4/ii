@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, LargeBinary, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -37,6 +37,8 @@ class Template(Base):
     is_popular = Column(Boolean, default=False, nullable=False)
     default_prompt = Column(Text, nullable=True)
     preview_image_url = Column(Text, nullable=True)
+    preview_image_data = Column(LargeBinary, nullable=True)  # BYTEA в PostgreSQL
+    preview_image_content_type = Column(String(50), nullable=True)  # image/jpeg, image/png и т.д.
     examples = Column(JSONB, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

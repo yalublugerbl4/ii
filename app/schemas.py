@@ -35,6 +35,8 @@ class TemplateCreate(BaseModel):
     is_popular: bool = False
     default_prompt: Optional[str] = None
     preview_image_url: Optional[str] = None
+    preview_image_data: Optional[str] = None  # base64 encoded image
+    preview_image_content_type: Optional[str] = None  # image/jpeg, image/png и т.д.
     examples: Optional[list[Any]] = None
 
 

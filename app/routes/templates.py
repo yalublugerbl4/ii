@@ -1,8 +1,10 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from io import BytesIO
 
 from .. import schemas
 from ..auth import get_current_user, require_admin
@@ -27,6 +29,42 @@ async def get_template(template_id: str, session: AsyncSession = Depends(get_ses
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
     return tpl
+
+
+@router.get("/{template_id}/preview")
+async def get_template_preview(
+    template_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить превью изображение шаблона из базы данных с кэшированием"""
+    result = await session.execute(select(Template).where(Template.id == template_id))
+    tpl = result.scalars().first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Если изображение хранится в базе данных
+    if tpl.preview_image_data:
+        content_type = tpl.preview_image_content_type or 'image/jpeg'
+        
+        # Создаем поток из байтов
+        image_stream = BytesIO(tpl.preview_image_data)
+        
+        # Возвращаем изображение с кэшированием на 1 год
+        return StreamingResponse(
+            image_stream,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",  # 1 год кэширования
+                "ETag": f'"{template_id}"',  # Для валидации кэша
+            }
+        )
+    
+    # Если изображение по URL, редиректим (или можно вернуть 404)
+    if tpl.preview_image_url:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=tpl.preview_image_url)
+    
+    raise HTTPException(status_code=404, detail="Preview image not found")
 
 
 @router.post("", response_model=schemas.TemplateOut)
@@ -58,6 +96,22 @@ async def update_template(
     
     template_data = payload.dict()
     
+    # Если есть preview_image_data (base64), декодируем и сохраняем
+    preview_image_data = template_data.pop('preview_image_data', None)
+    preview_image_content_type = template_data.pop('preview_image_content_type', None)
+    
+    if preview_image_data:
+        import base64
+        try:
+            tpl.preview_image_data = base64.b64decode(preview_image_data)
+            tpl.preview_image_content_type = preview_image_content_type or 'image/jpeg'
+        except Exception as e:
+            logger.warning(f"Failed to decode preview_image_data: {e}")
+    elif preview_image_data is None and 'preview_image_url' in template_data:
+        # Если preview_image_data не передан, но есть URL, очищаем данные из базы
+        tpl.preview_image_data = None
+        tpl.preview_image_content_type = None
+    
     for k, v in template_data.items():
         setattr(tpl, k, v)
     session.add(tpl)
@@ -86,30 +140,40 @@ async def upload_preview(
     file: UploadFile,
     _: None = Depends(require_admin),
 ):
-    """Загрузить превью изображение в папку public/uploads"""
-    import uuid
-    from pathlib import Path
-    
+    """Загрузить превью изображение в базу данных PostgreSQL"""
     try:
-        # Создаем папку public/uploads если её нет
-        upload_dir = Path("public/uploads")
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Генерируем уникальное имя файла
-        file_ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
-        file_name = f"{uuid.uuid4()}.{file_ext}"
-        file_path = upload_dir / file_name
-        
-        # Сохраняем файл
+        # Читаем содержимое файла
         content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
         
-        # Возвращаем URL для доступа через бэкенд
-        # Используем относительный путь, бэкенд будет раздавать статику
-        url = f"/uploads/{file_name}"
-        logger.info(f"File uploaded to public/uploads: {file_name}, URL: {url}")
-        return {"url": url}
+        # Определяем content type
+        content_type = file.content_type or 'image/jpeg'
+        if not content_type.startswith('image/'):
+            # Пытаемся определить по расширению
+            ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+            if ext == 'png':
+                content_type = 'image/png'
+            elif ext == 'gif':
+                content_type = 'image/gif'
+            elif ext == 'webp':
+                content_type = 'image/webp'
+            else:
+                content_type = 'image/jpeg'
+        
+        # Сохраняем в базу данных
+        # Возвращаем URL для использования в шаблоне
+        # URL будет указывать на эндпоинт /templates/{id}/preview
+        # Но пока что возвращаем placeholder, так как нужен template_id
+        # В реальности это будет использоваться при создании/обновлении шаблона
+        
+        logger.info(f"File uploaded to database, size: {len(content)} bytes, content_type: {content_type}")
+        
+        # Возвращаем данные для сохранения в шаблоне
+        import base64
+        return {
+            "data": base64.b64encode(content).decode('utf-8'),
+            "content_type": content_type,
+            "size": len(content)
+        }
     except Exception as e:
         logger.error(f"Failed to upload file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
@@ -124,25 +188,12 @@ async def upload_preview_from_url(
     request: PreviewUrlRequest,
     _: None = Depends(require_admin),
 ):
-    """Загрузить изображение по URL и сохранить в папку public/uploads"""
-    import os
-    import uuid
+    """Загрузить изображение по URL и вернуть base64 для сохранения в базу данных"""
     import httpx
-    from pathlib import Path
+    import base64
     
     url = request.url
     logger.info(f"Uploading preview from URL: {url}")
-    
-    # Если это ссылка Яндекс Диска, получаем прямую ссылку через API
-    if 'disk.yandex.ru/i/' in url or 'disk.yandex.ru/d/' in url:
-        logger.info(f"Yandex Disk link detected, getting direct URL via API: {url}")
-        try:
-            direct_url = await get_yandex_disk_direct_url(url)
-            if direct_url and direct_url != url:
-                url = direct_url
-                logger.info(f"Using direct URL from Yandex Disk API: {direct_url}")
-        except Exception as e:
-            logger.warning(f"Error getting direct URL from Yandex Disk API: {e}, using original URL")
     
     try:
         # Загружаем файл по URL
@@ -155,32 +206,15 @@ async def upload_preview_from_url(
             if not content_type.startswith('image/'):
                 raise HTTPException(status_code=400, detail="URL does not point to an image")
             
-            # Определяем расширение
-            ext = 'jpg'
-            if 'png' in content_type:
-                ext = 'png'
-            elif 'gif' in content_type:
-                ext = 'gif'
-            elif 'webp' in content_type:
-                ext = 'webp'
+            # Кодируем в base64 для сохранения в базу
+            image_data = base64.b64encode(response.content).decode('utf-8')
             
-            # Создаем папку public/uploads если её нет
-            upload_dir = Path("public/uploads")
-            upload_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Генерируем уникальное имя файла
-            file_name = f"{uuid.uuid4()}.{ext}"
-            file_path = upload_dir / file_name
-            
-            # Сохраняем файл
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-            
-            # Возвращаем URL для доступа через бэкенд
-            # Используем относительный путь, бэкенд будет раздавать статику
-            final_url = f"/uploads/{file_name}"
-            logger.info(f"Successfully uploaded to public/uploads: {file_name}, URL: {final_url}")
-            return {"url": final_url}
+            logger.info(f"Successfully downloaded image from URL, size: {len(response.content)} bytes")
+            return {
+                "data": image_data,
+                "content_type": content_type,
+                "size": len(response.content)
+            }
             
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error when downloading from URL: {e.response.status_code}")
