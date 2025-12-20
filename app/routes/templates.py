@@ -1,5 +1,7 @@
 import re
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -10,6 +12,7 @@ from ..models import Template
 from ..services.kie import upload_file_stream
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+logger = logging.getLogger(__name__)
 
 
 def convert_yandex_disk_url(url: str) -> str:
@@ -17,23 +20,32 @@ def convert_yandex_disk_url(url: str) -> str:
     if not url or not isinstance(url, str):
         return url
     
+    original_url = url
+    
     # Паттерн для ссылок вида https://disk.yandex.ru/i/<id>
     pattern_i = r'https?://disk\.yandex\.ru/i/([a-zA-Z0-9_-]+)'
     match_i = re.search(pattern_i, url)
     if match_i:
         file_id = match_i.group(1)
-        # Преобразуем в прямую ссылку на скачивание через getfile.dokpub.com
-        # Это сервис, который конвертирует публичные ссылки Яндекс Диска в прямые ссылки
-        return f"https://getfile.dokpub.com/yandex/get/{file_id}"
+        logger.info(f"Converting Yandex Disk link: {url} -> file_id: {file_id}")
+        # Пробуем несколько вариантов преобразования
+        # Вариант 1: через getfile.dokpub.com
+        converted_url = f"https://getfile.dokpub.com/yandex/get/{file_id}"
+        logger.info(f"Converted to: {converted_url}")
+        return converted_url
     
     # Паттерн для ссылок вида https://disk.yandex.ru/d/<id>
     pattern_d = r'https?://disk\.yandex\.ru/d/([a-zA-Z0-9_-]+)'
     match_d = re.search(pattern_d, url)
     if match_d:
         file_id = match_d.group(1)
-        return f"https://getfile.dokpub.com/yandex/get/{file_id}"
+        logger.info(f"Converting Yandex Disk link: {url} -> file_id: {file_id}")
+        converted_url = f"https://getfile.dokpub.com/yandex/get/{file_id}"
+        logger.info(f"Converted to: {converted_url}")
+        return converted_url
     
     # Если это уже прямая ссылка или другой формат, возвращаем как есть
+    logger.info(f"Yandex Disk link not matched, returning original: {url}")
     return url
 
 
@@ -123,4 +135,82 @@ async def upload_preview(
         from ..settings import settings
         url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
     return {"url": url}
+
+
+class PreviewUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/upload/preview-from-url")
+async def upload_preview_from_url(
+    request: PreviewUrlRequest,
+    _: None = Depends(require_admin),
+):
+    """Загрузить изображение по URL (например, с Яндекс Диска) и сохранить на KIE"""
+    import httpx
+    from ..settings import settings
+    from io import BytesIO
+    
+    url = request.url
+    logger.info(f"Uploading preview from URL: {url}")
+    
+    # Преобразуем ссылку Яндекс Диска, если нужно
+    converted_url = convert_yandex_disk_url(url)
+    logger.info(f"Converted URL: {converted_url}")
+    
+    try:
+        # Загружаем изображение по URL
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            response = await client.get(converted_url)
+            response.raise_for_status()
+            
+            # Проверяем, что это изображение
+            content_type = response.headers.get('content-type', '')
+            if not content_type.startswith('image/'):
+                # Если не изображение, пробуем оригинальную ссылку
+                logger.warning(f"Converted URL returned non-image content type: {content_type}, trying original URL")
+                response = await client.get(url, follow_redirects=True)
+                response.raise_for_status()
+                content_type = response.headers.get('content-type', '')
+                if not content_type.startswith('image/'):
+                    raise HTTPException(status_code=400, detail="URL does not point to an image")
+            
+            # Создаем временный файл из ответа
+            file_content = response.content
+            file_obj = BytesIO(file_content)
+            
+            # Определяем расширение файла
+            ext = 'jpg'
+            if 'png' in content_type:
+                ext = 'png'
+            elif 'gif' in content_type:
+                ext = 'gif'
+            elif 'webp' in content_type:
+                ext = 'webp'
+            
+            # Создаем UploadFile из содержимого
+            from fastapi import UploadFile
+            upload_file = UploadFile(
+                filename=f"preview.{ext}",
+                file=file_obj
+            )
+            
+            # Загружаем на KIE
+            path = await upload_file_stream(upload_file)
+            
+            # KIE возвращает полный URL или относительный путь
+            if path.startswith("http"):
+                final_url = path
+            else:
+                final_url = f"{settings.kie_file_upload_base}/{path.lstrip('/')}"
+            
+            logger.info(f"Successfully uploaded to KIE: {final_url}")
+            return {"url": final_url}
+            
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP error when uploading from URL: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=400, detail=f"Failed to download image from URL: HTTP {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"Failed to upload preview from URL: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Failed to upload image from URL: {str(e)}")
 
