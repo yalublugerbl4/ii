@@ -41,7 +41,7 @@ def make_receipt(uid: int, tokens: float, amount_rub: float) -> dict:
         "customer": {"email": customer_email},
         "items": [
             {
-                "description": f"Пополнение {tokens:.1f} токенов",
+                "description": f"Пополнение {tokens:.1f} кредитов",
                 "amount": {"value": f"{amount_rub:.2f}", "currency": "RUB"},
                 "quantity": "1.0",
                 "vat_code": 1,
@@ -118,7 +118,7 @@ async def create_payment(
             "type": "redirect",
             "return_url": f"{settings.frontend_url}/profile",
         },
-        "description": f"AI Trends: {tokens:g} токенов ({plan_code})",
+        "description": f"AI Trends: {tokens:g} кредитов ({plan_code})",
         "metadata": {
             "bot_user_id": str(uid),
             "plan": f"user:{plan_code}",
@@ -202,7 +202,7 @@ async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get
         # Обновляем статус платежа
         payment.status = "succeeded"
         
-        # Зачисляем токены пользователю
+        # Зачисляем кредиты пользователю
         result = await session.execute(select(User).where(User.tgid == payment.tgid))
         db_user = result.scalars().first()
         if db_user:
@@ -271,7 +271,7 @@ async def get_payment_status(
             yoo_payment = YooPayment.find_one(payment.yookassa_payment_id)
             if yoo_payment.status == "succeeded" and payment.status != "succeeded":
                 payment.status = "succeeded"
-                # Зачисляем токены
+                # Зачисляем кредиты
                 result = await session.execute(select(User).where(User.tgid == payment.tgid))
                 db_user = result.scalars().first()
                 if db_user:
