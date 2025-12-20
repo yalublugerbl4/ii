@@ -41,12 +41,27 @@ MIN_BALANCE_REQUIRED = {
     "veo3": 280.0,
     "veo3_fast": 70.0,
     "grok-imagine/text-to-video": 30.0,
+    "bytedance/v1-pro-fast-image-to-video": 20.0,  # Минимум для 480p + 5 сек
     "seedream/4.5-text-to-image": 10.0,
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,
     "nano-banana-pro": 20.0,
     "recraft/remove-background": 5.0,
 }
+
+# Цены для V1 Pro Fast в зависимости от разрешения и длительности
+V1_PRO_PRICES = {
+    ("480p", "5"): 20.0,
+    ("480p", "10"): 40.0,
+    ("720p", "5"): 30.0,
+    ("720p", "10"): 80.0,
+    ("1080p", "5"): 80.0,
+    ("1080p", "10"): 160.0,
+}
+
+def get_v1_pro_price(resolution: str, duration: str) -> float:
+    """Возвращает цену для V1 Pro Fast в зависимости от разрешения и длительности"""
+    return V1_PRO_PRICES.get((resolution, duration), 20.0)
 
 
 def get_generation_price(model: str) -> float:
@@ -132,6 +147,13 @@ async def list_video_models():
             modes=["video"],
             supports_output_format=False,
         ),
+        schemas.ModelInfo(
+            id="bytedance/v1-pro-fast-image-to-video",
+            title="V1 Pro Fast",
+            description="Генерация видео из изображения",
+            modes=["video"],
+            supports_output_format=False,
+        ),
     ]
     return models
 
@@ -140,7 +162,7 @@ async def list_video_models():
 async def generate_video(
     request: Request,
     prompt: str = Form(...),
-    model: str = Form(...),  # grok-imagine/text-to-video, veo3, veo3_fast
+    model: str = Form(...),  # grok-imagine/text-to-video, veo3, veo3_fast, bytedance/v1-pro-fast-image-to-video
     aspect_ratio: Optional[str] = Form(None),  # Для Grok: 2:3, 3:2, 1:1. Для Veo: 16:9, 9:16, Auto
     mode: Optional[str] = Form(None),  # Для Grok: normal, fun, spicy. Для Veo: generation_type
     files: Optional[List[UploadFile]] = File(None),
@@ -148,6 +170,8 @@ async def generate_video(
     seeds: Optional[int] = Form(None),  # Для Veo: 10000-99999
     enable_translation: Optional[bool] = Form(True),  # Для Veo
     watermark: Optional[str] = Form(None),  # Для Veo
+    resolution: Optional[str] = Form(None),  # Для V1 Pro: 480p, 720p, 1080p
+    duration: Optional[str] = Form(None),  # Для V1 Pro: 5, 10
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -169,19 +193,10 @@ async def generate_video(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Проверяем баланс перед генерацией
-    min_balance = get_min_balance_required(model)
-    user_balance = float(db_user.balance) if db_user.balance else 0.0
-    if user_balance < min_balance:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "message": f"Недостаточно средств. Требуется {min_balance} кредитов для модели {model}",
-                "required_balance": min_balance,
-                "current_balance": user_balance,
-                "model": model,
-            }
-        )
+    # Определяем тип модели
+    is_veo = model in ("veo3", "veo3_fast")
+    is_grok = model == "grok-imagine/text-to-video"
+    is_v1_pro = model == "bytedance/v1-pro-fast-image-to-video"
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
@@ -202,9 +217,30 @@ async def generate_video(
     
     logger.info(f"Total image URLs: {len(final_image_urls)}")
     
-    # Определяем тип модели
-    is_veo = model in ("veo3", "veo3_fast")
-    is_grok = model == "grok-imagine/text-to-video"
+    # Для V1 Pro требуется изображение
+    if is_v1_pro and len(final_image_urls) == 0:
+        raise HTTPException(status_code=400, detail="Для V1 Pro необходимо загрузить изображение")
+    
+    # Проверяем баланс перед генерацией
+    # Для V1 Pro проверяем баланс на основе разрешения и длительности
+    if is_v1_pro:
+        if not resolution or not duration:
+            raise HTTPException(status_code=400, detail="Для V1 Pro необходимо указать разрешение и длительность")
+        required_balance = get_v1_pro_price(resolution, duration)
+    else:
+        required_balance = get_min_balance_required(model)
+    
+    user_balance = float(db_user.balance) if db_user.balance else 0.0
+    if user_balance < required_balance:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "message": f"Недостаточно средств. Требуется {required_balance} кредитов",
+                "required_balance": required_balance,
+                "current_balance": user_balance,
+                "model": model,
+            }
+        )
     
     # Проверяем, есть ли вебхуки n8n
     n8n_webhooks = None
@@ -268,7 +304,7 @@ async def generate_video(
             template_id=None,
             model=model,
             aspect_ratio=aspect_ratio,
-            resolution=None,
+            resolution=resolution if is_v1_pro else None,
             output_format="mp4",
             prompt=prompt,
             status="sent_to_n8n",
@@ -321,7 +357,7 @@ async def generate_video(
         template_id=None,
         model=model,
         aspect_ratio=aspect_ratio,
-        resolution=None,
+        resolution=resolution if is_v1_pro else None,
         output_format="mp4",
         prompt=prompt,
         status="queued",

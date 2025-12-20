@@ -511,6 +511,22 @@ async def build_payload_for_model(
         if image_urls_list:
             # Только один URL для image-to-video
             payload["input"]["image_urls"] = image_urls_list[:1]
+    elif model == "bytedance/v1-pro-fast-image-to-video":
+        # V1 Pro Fast Image To Video - по документации API
+        payload_input = {
+            "prompt": prompt[:10000],  # Макс 10000 по документации
+        }
+        if image_urls_list:
+            # Только один image_url для V1 Pro
+            payload_input["image_url"] = image_urls_list[0]
+        if resolution:
+            payload_input["resolution"] = resolution  # 480p, 720p, 1080p
+        if duration:
+            payload_input["duration"] = duration  # 5, 10
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
     else:
         # Fallback для неизвестных моделей
         payload = {
