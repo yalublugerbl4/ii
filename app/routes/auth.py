@@ -170,6 +170,98 @@ async def get_mini_app_link(
     }
 
 
+@router.get("/all-mini-app-links")
+async def get_all_mini_app_links(
+    _: None = Depends(require_admin),
+):
+    """Получить ссылки для всех доступных нейросетей (только для админов)
+    
+    Возвращает ссылки для всех моделей генерации изображений и видео,
+    а также для других функций (удаление фона, улучшение качества).
+    """
+    from ..settings import settings
+    bot_username = getattr(settings, 'bot_username', None)
+    frontend_url = getattr(settings, 'frontend_url', 'https://iiapp-66742.web.app')
+    direct_link_name = getattr(settings, 'direct_link_name', 'app')
+    
+    links = []
+    
+    # Модели для генерации изображений
+    image_models = [
+        {"id": "google/nano-banana-edit", "name": "NanoBanana", "page": "generator/image"},
+        {"id": "nano-banana-pro", "name": "NanoBanana PRO", "page": "generator/image"},
+        {"id": "seedream/4.5-text-to-image", "name": "Seedream 4.5", "page": "generator/image"},
+    ]
+    
+    for model in image_models:
+        web_app_url = f"{frontend_url}/{model['page'].replace('_', '/')}?model={model['id']}"
+        bot_link = None
+        if bot_username:
+            startapp_param = f"{model['page']}_{model['id']}"
+            bot_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
+        
+        links.append({
+            "type": "image",
+            "model_id": model['id'],
+            "model_name": model['name'],
+            "web_app_url": web_app_url,
+            "bot_link": bot_link,
+            "startapp_param": f"{model['page']}_{model['id']}" if bot_username else None
+        })
+    
+    # Модели для генерации видео
+    video_models = [
+        {"id": "grok-imagine/text-to-video", "name": "Grok Imagine", "page": "generator/video"},
+        {"id": "veo3", "name": "Veo 3.1 Quality", "page": "generator/video"},
+        {"id": "veo3_fast", "name": "Veo 3.1 Fast", "page": "generator/video"},
+    ]
+    
+    for model in video_models:
+        web_app_url = f"{frontend_url}/{model['page'].replace('_', '/')}?model={model['id']}"
+        bot_link = None
+        if bot_username:
+            startapp_param = f"{model['page']}_{model['id']}"
+            bot_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
+        
+        links.append({
+            "type": "video",
+            "model_id": model['id'],
+            "model_name": model['name'],
+            "web_app_url": web_app_url,
+            "bot_link": bot_link,
+            "startapp_param": f"{model['page']}_{model['id']}" if bot_username else None
+        })
+    
+    # Другие функции (без модели)
+    other_features = [
+        {"name": "Удаление фона", "page": "generator/remove-bg", "startapp": "generator_remove-bg"},
+        {"name": "Улучшение качества", "page": "generator/upscale", "startapp": "generator_upscale"},
+    ]
+    
+    for feature in other_features:
+        web_app_url = f"{frontend_url}/{feature['page']}"
+        bot_link = None
+        if bot_username:
+            startapp_param = feature['startapp']
+            bot_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
+        
+        links.append({
+            "type": "feature",
+            "model_id": None,
+            "model_name": feature['name'],
+            "web_app_url": web_app_url,
+            "bot_link": bot_link,
+            "startapp_param": feature['startapp'] if bot_username else None
+        })
+    
+    return {
+        "links": links,
+        "total": len(links),
+        "frontend_url": frontend_url,
+        "bot_username": bot_username
+    }
+
+
 @router.get("/check-admin")
 async def check_admin(
     user=Depends(get_current_user),
