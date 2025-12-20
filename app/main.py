@@ -1,8 +1,10 @@
 import logging
+from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .routes import auth, generate, history, payments, templates
 from .settings import settings
@@ -39,6 +41,11 @@ app.include_router(templates.router)
 app.include_router(generate.router)
 app.include_router(history.router)
 app.include_router(payments.router)
+
+# Раздача статических файлов из папки public/uploads
+public_dir = Path("public")
+if public_dir.exists():
+    app.mount("/uploads", StaticFiles(directory=str(public_dir / "uploads")), name="uploads")
 
 
 @app.exception_handler(RequestValidationError)
