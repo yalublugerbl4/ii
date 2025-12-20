@@ -20,6 +20,7 @@ class TemplateOut(BaseModel):
     is_popular: bool
     default_prompt: Optional[str] = None
     preview_image_url: Optional[str] = None
+    preview_image_content_type: Optional[str] = None
     examples: Optional[list[Any]] = None
     created_at: datetime
 
