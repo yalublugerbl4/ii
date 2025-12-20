@@ -1,4 +1,5 @@
 import uuid
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.requests import Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -170,6 +171,9 @@ async def create_payment(
 @router.post("/webhook")
 async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get_session)):
     """Webhook от ЮКассы для уведомления о статусе платежа"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         body = await request.json()
     except Exception:
@@ -211,6 +215,24 @@ async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get
                 referrer = result.scalars().first()
                 if referrer:
                     referrer.balance = float(referrer.balance) + referral_bonus
+                    
+                    # Отправляем вебхук о пополнении реферала
+                    if settings.ref_webhook_url:
+                        try:
+                            async with httpx.AsyncClient(timeout=5.0) as client:
+                                await client.post(
+                                    settings.ref_webhook_url,
+                                    json={
+                                        "referrer_tgid": referrer.tgid,
+                                        "referral_tgid": db_user.tgid,
+                                        "payment_amount": float(payment.amount),
+                                        "payment_tokens": float(payment.tokens),
+                                        "referral_bonus": referral_bonus,
+                                        "payment_id": str(payment.id),
+                                    }
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to send referral webhook: {e}")
         
         await session.commit()
     except Exception as e:
@@ -227,6 +249,9 @@ async def get_payment_status(
     session: AsyncSession = Depends(get_session),
 ):
     """Проверить статус платежа"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         payment_uuid = uuid.UUID(payment_id)
     except ValueError:
@@ -259,6 +284,24 @@ async def get_payment_status(
                         referrer = result.scalars().first()
                         if referrer:
                             referrer.balance = float(referrer.balance) + referral_bonus
+                            
+                            # Отправляем вебхук о пополнении реферала
+                            if settings.ref_webhook_url:
+                                try:
+                                    async with httpx.AsyncClient(timeout=5.0) as client:
+                                        await client.post(
+                                            settings.ref_webhook_url,
+                                            json={
+                                                "referrer_tgid": referrer.tgid,
+                                                "referral_tgid": db_user.tgid,
+                                                "payment_amount": float(payment.amount),
+                                                "payment_tokens": float(payment.tokens),
+                                                "referral_bonus": referral_bonus,
+                                                "payment_id": str(payment.id),
+                                            }
+                                        )
+                                except Exception as e:
+                                    logger.error(f"Failed to send referral webhook: {e}")
                 
                 await session.commit()
         except Exception:

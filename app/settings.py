@@ -1,6 +1,7 @@
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -22,10 +23,12 @@ class Settings(BaseSettings):
     direct_link_name: str = "app"  # Имя Direct Link (например: "app" для t.me/bot_username/app)
     # Webhooks для n8n - можно указать несколько через запятую или один общий
     n8n_webhook_urls: str | None = None  # Формат: "url1,url2,url3" или просто "url"
+    ref_webhook_url: str | None = Field(default=None, alias="REF")  # Webhook для уведомлений о пополнении рефералов (читается из переменной REF)
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
 
 
 @lru_cache
