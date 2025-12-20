@@ -203,6 +203,14 @@ async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get
         db_user = result.scalars().first()
         if db_user:
             db_user.balance = float(db_user.balance) + float(payment.tokens)
+            
+            # Если пользователь был приглашен рефералом, начисляем 10% админу
+            if db_user.referred_by:
+                referral_bonus = float(payment.tokens) * 0.1  # 10% от пополнения
+                result = await session.execute(select(User).where(User.tgid == db_user.referred_by))
+                referrer = result.scalars().first()
+                if referrer:
+                    referrer.balance = float(referrer.balance) + referral_bonus
         
         await session.commit()
     except Exception as e:
@@ -243,6 +251,15 @@ async def get_payment_status(
                 db_user = result.scalars().first()
                 if db_user:
                     db_user.balance = float(db_user.balance) + float(payment.tokens)
+                    
+                    # Если пользователь был приглашен рефералом, начисляем 10% админу
+                    if db_user.referred_by:
+                        referral_bonus = float(payment.tokens) * 0.1  # 10% от пополнения
+                        result = await session.execute(select(User).where(User.tgid == db_user.referred_by))
+                        referrer = result.scalars().first()
+                        if referrer:
+                            referrer.balance = float(referrer.balance) + referral_bonus
+                
                 await session.commit()
         except Exception:
             pass
