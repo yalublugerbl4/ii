@@ -15,7 +15,6 @@ class User(Base):
     tgid = Column(BigInteger, unique=True, nullable=False, index=True)
     balance = Column(Numeric(10, 2), default=0.0, nullable=False)
     email = Column(String(255), nullable=True)
-    referral_code = Column(String(20), unique=True, nullable=True, index=True)
     referred_by = Column(BigInteger, ForeignKey("users.tgid"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
