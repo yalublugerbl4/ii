@@ -234,6 +234,7 @@ async def get_all_mini_app_links(
     
     # Другие функции (без модели)
     other_features = [
+        {"name": "Генерация музыки", "page": "generator/music", "startapp": "generator_music"},
         {"name": "Удаление фона", "page": "generator/remove-bg", "startapp": "generator_remove-bg"},
         {"name": "Улучшение качества", "page": "generator/upscale", "startapp": "generator_upscale"},
     ]
