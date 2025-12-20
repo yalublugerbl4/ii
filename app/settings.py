@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     yookassa_secret_key: str | None = None
     frontend_url: str = "https://iiapp-66742.web.app"
     bot_username: str | None = None  # Имя бота без @ (например: my_bot)
+    direct_link_name: str = "app"  # Имя Direct Link (например: "app" для t.me/bot_username/app)
     # Webhooks для n8n - можно указать несколько через запятую или один общий
     n8n_webhook_urls: str | None = None  # Формат: "url1,url2,url3" или просто "url"
 

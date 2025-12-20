@@ -108,12 +108,11 @@ async def get_referral_link(
     bot_username = getattr(settings, 'bot_username', None)
     
     if bot_username:
-        # Ссылка для открытия Mini App с параметром startapp
-        # Формат: https://t.me/bot_username?startapp=r_tgid_123456789
-        # Если у бота есть имя приложения (создано через /newapp), используйте:
-        # https://t.me/bot_username/app_name?startapp=r_tgid_123456789
-        # Для запроса разрешения на отправку сообщений бот должен быть настроен в BotFather
-        referral_link = f"https://t.me/{bot_username}?startapp=r_tgid_{db_user.tgid}"
+        # Используем Direct Link для открытия Mini App с параметром startapp
+        # Формат: https://t.me/bot_username/direct_link_name?startapp=r_tgid_123456789
+        # Direct Link обеспечивает появление диалога разрешения при первом открытии
+        direct_link_name = getattr(settings, 'direct_link_name', 'app')
+        referral_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp=r_tgid_{db_user.tgid}"
     else:
         # Fallback: используем frontend_url если bot_username не указан
         frontend_url = getattr(settings, 'frontend_url', 'https://iiapp-66742.web.app')
