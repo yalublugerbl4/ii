@@ -115,7 +115,7 @@ async def list_models():
         schemas.ModelInfo(
             id="seedream/4.5-text-to-image",
             title="Seedream 4.5",
-            description="Новейшая модель Seedream 4.5",
+            description="Высококачественная генерация изображений",
             supports_output_format=True,
         ),
     ]
@@ -129,7 +129,7 @@ async def list_video_models():
         schemas.ModelInfo(
             id="grok-imagine/text-to-video",
             title="Grok Imagine",
-            description="Быстрая и дешёвая генерация видео от Х - Grok, со звуком",
+            description="Быстрая и дешёвая генерация видео от Илона Маска, со звуком",
             modes=["video"],
             supports_output_format=False,
         ),
