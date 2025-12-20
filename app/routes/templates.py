@@ -300,3 +300,56 @@ async def upload_preview_from_url(
             detail=f"Не удалось загрузить изображение: {str(e)}"
         )
 
+
+@router.post("/optimize-all")
+async def optimize_all_templates(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Оптимизировать все существующие изображения в шаблонах"""
+    result = await session.execute(select(Template).where(Template.preview_image_data.isnot(None)))
+    templates = result.scalars().all()
+    
+    optimized_count = 0
+    total_saved = 0
+    errors = []
+    
+    for template in templates:
+        try:
+            original_data = template.preview_image_data
+            if not original_data:
+                continue
+            
+            original_size = len(original_data)
+            
+            # Оптимизируем изображение
+            optimized_data, content_type = optimize_image(original_data)
+            optimized_size = len(optimized_data)
+            
+            # Если размер уменьшился, обновляем
+            if optimized_size < original_size:
+                template.preview_image_data = optimized_data
+                template.preview_image_content_type = content_type
+                optimized_count += 1
+                saved = original_size - optimized_size
+                total_saved += saved
+                logger.info(f"Optimized template {template.id} ({template.title}): {original_size} -> {optimized_size} bytes (saved {saved} bytes)")
+            else:
+                logger.info(f"Template {template.id} ({template.title}): no optimization needed ({original_size} bytes)")
+            
+        except Exception as e:
+            error_msg = f"Template {template.id} ({template.title}): {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+            continue
+    
+    await session.commit()
+    
+    return {
+        "optimized": optimized_count,
+        "total_templates": len(templates),
+        "total_saved_bytes": total_saved,
+        "total_saved_mb": round(total_saved / 1024 / 1024, 2),
+        "errors": errors if errors else None
+    }
+
