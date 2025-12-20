@@ -29,7 +29,7 @@ class TemplateOut(BaseModel):
 
 class TemplateCreate(BaseModel):
     title: str
-    description: str
+    description: Optional[str] = ""
     badge: Optional[str] = None
     is_new: bool = False
     is_popular: bool = False
