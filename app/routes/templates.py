@@ -73,9 +73,28 @@ async def create_template(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    import base64
+    
     template_data = payload.dict()
     
+    # Если есть preview_image_data (base64), декодируем и сохраняем
+    preview_image_data_str = template_data.pop('preview_image_data', None)
+    preview_image_content_type = template_data.pop('preview_image_content_type', None)
+    
+    # Создаем объект Template без preview_image_data
     tpl = Template(**template_data)
+    
+    # Если есть base64 данные, декодируем их в байты
+    if preview_image_data_str:
+        try:
+            # Декодируем base64 строку в байты
+            tpl.preview_image_data = base64.b64decode(preview_image_data_str)
+            tpl.preview_image_content_type = preview_image_content_type or 'image/jpeg'
+            logger.info(f"Decoded preview_image_data, size: {len(tpl.preview_image_data)} bytes")
+        except Exception as e:
+            logger.error(f"Failed to decode preview_image_data: {e}", exc_info=True)
+            # Не сохраняем данные, если декодирование не удалось
+    
     session.add(tpl)
     await session.commit()
     await session.refresh(tpl)
@@ -89,6 +108,8 @@ async def update_template(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    import base64
+    
     result = await session.execute(select(Template).where(Template.id == template_id))
     tpl = result.scalars().first()
     if not tpl:
@@ -97,17 +118,19 @@ async def update_template(
     template_data = payload.dict()
     
     # Если есть preview_image_data (base64), декодируем и сохраняем
-    preview_image_data = template_data.pop('preview_image_data', None)
+    preview_image_data_str = template_data.pop('preview_image_data', None)
     preview_image_content_type = template_data.pop('preview_image_content_type', None)
     
-    if preview_image_data:
-        import base64
+    if preview_image_data_str:
         try:
-            tpl.preview_image_data = base64.b64decode(preview_image_data)
+            # Декодируем base64 строку в байты
+            tpl.preview_image_data = base64.b64decode(preview_image_data_str)
             tpl.preview_image_content_type = preview_image_content_type or 'image/jpeg'
+            logger.info(f"Decoded preview_image_data for update, size: {len(tpl.preview_image_data)} bytes")
         except Exception as e:
-            logger.warning(f"Failed to decode preview_image_data: {e}")
-    elif preview_image_data is None and 'preview_image_url' in template_data:
+            logger.error(f"Failed to decode preview_image_data: {e}", exc_info=True)
+            # Не обновляем данные, если декодирование не удалось
+    elif preview_image_data_str is None and 'preview_image_url' in template_data:
         # Если preview_image_data не передан, но есть URL, очищаем данные из базы
         tpl.preview_image_data = None
         tpl.preview_image_content_type = None
