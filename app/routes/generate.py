@@ -91,7 +91,7 @@ async def list_models():
         ),
         schemas.ModelInfo(
             id="nano-banana-pro",
-            title="🔥 NanoBanana PRO",
+            title="NanoBanana PRO",
             description="Новая улучшенная модель с более качественным пониманием запроса",
             supports_resolution=True,
             supports_output_format=True,
