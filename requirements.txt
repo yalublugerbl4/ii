@@ -10,4 +10,5 @@ pydantic==2.9.2
 pydantic-settings==2.6.1
 yookassa>=3.0.0
 email-validator>=2.0.0
+Pillow>=10.0.0
 

@@ -1,10 +1,12 @@
 import logging
+from typing import Tuple
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from io import BytesIO
+from PIL import Image
 
 from .. import schemas
 from ..auth import get_current_user, require_admin
@@ -14,6 +16,65 @@ from ..services.kie import upload_file_stream
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 logger = logging.getLogger(__name__)
+
+
+def optimize_image(image_data: bytes, max_width: int = 1200, max_height: int = 1800, quality: int = 85) -> Tuple[bytes, str]:
+    """
+    Оптимизирует изображение: изменяет размер, сжимает и конвертирует в JPEG.
+    
+    Args:
+        image_data: Байты исходного изображения
+        max_width: Максимальная ширина (по умолчанию 1200px для карточек 2:3)
+        max_height: Максимальная высота (по умолчанию 1800px для карточек 2:3)
+        quality: Качество JPEG (0-100, по умолчанию 85)
+    
+    Returns:
+        tuple: (оптимизированные байты, content_type)
+    """
+    try:
+        # Открываем изображение
+        img = Image.open(BytesIO(image_data))
+        
+        # Конвертируем RGBA в RGB если нужно (для JPEG)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # Создаем белый фон для прозрачных изображений
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Получаем текущие размеры
+        width, height = img.size
+        
+        # Вычисляем новые размеры с сохранением пропорций
+        if width > max_width or height > max_height:
+            ratio = min(max_width / width, max_height / height)
+            new_width = int(width * ratio)
+            new_height = int(height * ratio)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
+        
+        # Сохраняем в JPEG с оптимизацией
+        output = BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True, progressive=True)
+        output.seek(0)
+        
+        optimized_data = output.getvalue()
+        original_size = len(image_data)
+        optimized_size = len(optimized_data)
+        compression_ratio = (1 - optimized_size / original_size) * 100
+        
+        logger.info(f"Optimized image: {original_size} bytes -> {optimized_size} bytes ({compression_ratio:.1f}% reduction)")
+        
+        return optimized_data, 'image/jpeg'
+        
+    except Exception as e:
+        logger.error(f"Failed to optimize image: {e}", exc_info=True)
+        # Если оптимизация не удалась, возвращаем оригинал
+        return image_data, 'image/jpeg'
 
 
 @router.get("", response_model=list[schemas.TemplateOut])
@@ -163,39 +224,22 @@ async def upload_preview(
     file: UploadFile,
     _: None = Depends(require_admin),
 ):
-    """Загрузить превью изображение в базу данных PostgreSQL"""
+    """Загрузить превью изображение в базу данных PostgreSQL с оптимизацией"""
     try:
         # Читаем содержимое файла
-        content = await file.read()
+        original_content = await file.read()
         
-        # Определяем content type
-        content_type = file.content_type or 'image/jpeg'
-        if not content_type.startswith('image/'):
-            # Пытаемся определить по расширению
-            ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
-            if ext == 'png':
-                content_type = 'image/png'
-            elif ext == 'gif':
-                content_type = 'image/gif'
-            elif ext == 'webp':
-                content_type = 'image/webp'
-            else:
-                content_type = 'image/jpeg'
+        # Оптимизируем изображение
+        optimized_content, content_type = optimize_image(original_content)
         
-        # Сохраняем в базу данных
-        # Возвращаем URL для использования в шаблоне
-        # URL будет указывать на эндпоинт /templates/{id}/preview
-        # Но пока что возвращаем placeholder, так как нужен template_id
-        # В реальности это будет использоваться при создании/обновлении шаблона
-        
-        logger.info(f"File uploaded to database, size: {len(content)} bytes, content_type: {content_type}")
+        logger.info(f"File uploaded and optimized: {len(original_content)} bytes -> {len(optimized_content)} bytes, content_type: {content_type}")
         
         # Возвращаем данные для сохранения в шаблоне
         import base64
         return {
-            "data": base64.b64encode(content).decode('utf-8'),
+            "data": base64.b64encode(optimized_content).decode('utf-8'),
             "content_type": content_type,
-            "size": len(content)
+            "size": len(optimized_content)
         }
     except Exception as e:
         logger.error(f"Failed to upload file: {e}", exc_info=True)
@@ -211,7 +255,7 @@ async def upload_preview_from_url(
     request: PreviewUrlRequest,
     _: None = Depends(require_admin),
 ):
-    """Загрузить изображение по URL и вернуть base64 для сохранения в базу данных"""
+    """Загрузить изображение по URL и вернуть base64 для сохранения в базу данных с оптимизацией"""
     import httpx
     import base64
     
@@ -225,18 +269,22 @@ async def upload_preview_from_url(
             response.raise_for_status()
             
             # Проверяем, что это изображение
-            content_type = response.headers.get('content-type', '')
-            if not content_type.startswith('image/'):
+            original_content_type = response.headers.get('content-type', '')
+            if not original_content_type.startswith('image/'):
                 raise HTTPException(status_code=400, detail="URL does not point to an image")
             
-            # Кодируем в base64 для сохранения в базу
-            image_data = base64.b64encode(response.content).decode('utf-8')
+            # Оптимизируем изображение
+            original_content = response.content
+            optimized_content, content_type = optimize_image(original_content)
             
-            logger.info(f"Successfully downloaded image from URL, size: {len(response.content)} bytes")
+            # Кодируем в base64 для сохранения в базу
+            image_data = base64.b64encode(optimized_content).decode('utf-8')
+            
+            logger.info(f"Successfully downloaded and optimized image from URL: {len(original_content)} bytes -> {len(optimized_content)} bytes")
             return {
                 "data": image_data,
                 "content_type": content_type,
-                "size": len(response.content)
+                "size": len(optimized_content)
             }
             
     except httpx.HTTPStatusError as e:
