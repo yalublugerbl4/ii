@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from .. import schemas
-from ..auth import create_access_token, get_current_user, verify_telegram_init_data
+from ..auth import create_access_token, get_current_user, require_admin, verify_telegram_init_data
 from ..db import get_session
 from ..models import Admin, User
 
@@ -14,6 +14,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class UpdateEmailRequest(BaseModel):
     email: Optional[EmailStr] = None
+
+
+class AddAdminRequest(BaseModel):
+    tgid: int
 
 
 @router.get("/me", response_model=schemas.UserOut)
@@ -98,4 +102,31 @@ async def update_email(
     await session.refresh(db_user)
     
     return {"email": db_user.email}
+
+
+@router.post("/add-admin")
+async def add_admin(
+    body: AddAdminRequest,
+    admin_user=Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Добавить нового админа (только для существующих админов)"""
+    # Проверяем, существует ли пользователь
+    result = await session.execute(select(User).where(User.tgid == body.tgid))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Проверяем, не является ли уже админом
+    result = await session.execute(select(Admin).where(Admin.tgid == body.tgid))
+    existing_admin = result.scalars().first()
+    if existing_admin:
+        raise HTTPException(status_code=400, detail="User is already an admin")
+    
+    # Добавляем админа
+    new_admin = Admin(tgid=body.tgid)
+    session.add(new_admin)
+    await session.commit()
+    
+    return {"message": "Admin added successfully", "tgid": body.tgid}
 
