@@ -234,10 +234,23 @@ async def get_all_mini_app_links(
     
     # Другие функции (без модели)
     other_features = [
-        {"name": "Генерация музыки", "page": "generator/music", "startapp": "generator_music"},
         {"name": "Удаление фона", "page": "generator/remove-bg", "startapp": "generator_remove-bg"},
         {"name": "Улучшение качества", "page": "generator/upscale", "startapp": "generator_upscale"},
     ]
+    
+    # Генерация музыки (отдельно, так как может иметь модели в будущем)
+    music_feature = {
+        "type": "music",
+        "model_id": None,
+        "model_name": "Генерация музыки",
+        "web_app_url": f"{frontend_url}/generator/music",
+        "bot_link": None,
+        "startapp_param": "generator_music" if bot_username else None
+    }
+    if bot_username:
+        music_feature["bot_link"] = f"https://t.me/{bot_username}/{direct_link_name}?startapp=generator_music"
+    
+    links.append(music_feature)
     
     for feature in other_features:
         web_app_url = f"{frontend_url}/{feature['page']}"
