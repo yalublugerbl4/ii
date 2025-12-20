@@ -15,37 +15,48 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 logger = logging.getLogger(__name__)
 
 
+async def get_yandex_disk_direct_url(public_url: str) -> str:
+    """Получает прямую ссылку на файл через API Яндекс Диска"""
+    import httpx
+    import urllib.parse
+    
+    try:
+        # URL-кодируем оригинальную ссылку
+        encoded_url = urllib.parse.quote(public_url, safe='')
+        api_url = f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={encoded_url}"
+        
+        logger.info(f"Requesting direct URL from Yandex Disk API: {api_url}")
+        
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(api_url)
+            response.raise_for_status()
+            data = response.json()
+            
+            # API возвращает JSON с полем 'href' - это прямая ссылка на скачивание
+            direct_url = data.get('href')
+            if direct_url:
+                logger.info(f"Got direct URL from Yandex Disk API: {direct_url}")
+                return direct_url
+            else:
+                logger.warning(f"Yandex Disk API response missing 'href': {data}")
+                return public_url
+    except Exception as e:
+        logger.error(f"Failed to get direct URL from Yandex Disk API: {e}")
+        return public_url
+
+
 def convert_yandex_disk_url(url: str) -> str:
-    """Преобразует ссылку Яндекс Диска в прямую ссылку на файл"""
+    """Преобразует ссылку Яндекс Диска в прямую ссылку на файл (синхронная версия для сохранения)"""
     if not url or not isinstance(url, str):
         return url
     
-    original_url = url
+    # Проверяем, является ли это ссылкой Яндекс Диска
+    if 'disk.yandex.ru/i/' in url or 'disk.yandex.ru/d/' in url:
+        # Для синхронной функции просто возвращаем оригинальную ссылку
+        # Реальное преобразование будет в асинхронной функции загрузки
+        logger.info(f"Yandex Disk link detected: {url}")
+        return url
     
-    # Паттерн для ссылок вида https://disk.yandex.ru/i/<id>
-    pattern_i = r'https?://disk\.yandex\.ru/i/([a-zA-Z0-9_-]+)'
-    match_i = re.search(pattern_i, url)
-    if match_i:
-        file_id = match_i.group(1)
-        logger.info(f"Converting Yandex Disk link: {url} -> file_id: {file_id}")
-        # Пробуем несколько вариантов преобразования
-        # Вариант 1: через getfile.dokpub.com
-        converted_url = f"https://getfile.dokpub.com/yandex/get/{file_id}"
-        logger.info(f"Converted to: {converted_url}")
-        return converted_url
-    
-    # Паттерн для ссылок вида https://disk.yandex.ru/d/<id>
-    pattern_d = r'https?://disk\.yandex\.ru/d/([a-zA-Z0-9_-]+)'
-    match_d = re.search(pattern_d, url)
-    if match_d:
-        file_id = match_d.group(1)
-        logger.info(f"Converting Yandex Disk link: {url} -> file_id: {file_id}")
-        converted_url = f"https://getfile.dokpub.com/yandex/get/{file_id}"
-        logger.info(f"Converted to: {converted_url}")
-        return converted_url
-    
-    # Если это уже прямая ссылка или другой формат, возвращаем как есть
-    logger.info(f"Yandex Disk link not matched, returning original: {url}")
     return url
 
 
@@ -157,26 +168,18 @@ async def upload_preview_from_url(
     # Список URL для попыток загрузки
     urls_to_try = []
     
-    # Если это ссылка Яндекс Диска, пробуем несколько вариантов
+    # Если это ссылка Яндекс Диска, получаем прямую ссылку через API
     if 'disk.yandex.ru/i/' in url or 'disk.yandex.ru/d/' in url:
-        # Извлекаем ID из ссылки
-        pattern_i = r'https?://disk\.yandex\.ru/i/([a-zA-Z0-9_-]+)'
-        pattern_d = r'https?://disk\.yandex\.ru/d/([a-zA-Z0-9_-]+)'
-        match_i = re.search(pattern_i, url)
-        match_d = re.search(pattern_d, url)
-        file_id = None
-        if match_i:
-            file_id = match_i.group(1)
-        elif match_d:
-            file_id = match_d.group(1)
-        
-        if file_id:
-            # Вариант 1: через getfile.dokpub.com
-            urls_to_try.append(f"https://getfile.dokpub.com/yandex/get/{file_id}")
-            # Вариант 2: через yadi.sk (старый формат)
-            urls_to_try.append(f"https://yadi.sk/i/{file_id}")
-            # Вариант 3: прямая ссылка на скачивание через API (если файл публичный)
-            urls_to_try.append(f"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={url}")
+        logger.info(f"Yandex Disk link detected, getting direct URL via API: {url}")
+        try:
+            direct_url = await get_yandex_disk_direct_url(url)
+            if direct_url and direct_url != url:
+                urls_to_try.append(direct_url)
+                logger.info(f"Got direct URL from Yandex Disk API: {direct_url}")
+            else:
+                logger.warning("Failed to get direct URL, will try original URL")
+        except Exception as e:
+            logger.error(f"Error getting direct URL from Yandex Disk API: {e}")
     
     # Добавляем оригинальную ссылку в конец списка
     urls_to_try.append(url)
