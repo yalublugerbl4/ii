@@ -121,6 +121,43 @@ async def get_referral_link(
     return {"referral_link": referral_link}
 
 
+@router.get("/mini-app-link")
+async def get_mini_app_link(
+    page: Optional[str] = Query(None, description="Страница для открытия (например: generator_image)"),
+    model: Optional[str] = Query(None, description="Модель для выбора (например: nano-banana-pro)"),
+    _: None = Depends(require_admin),
+):
+    """Получить ссылку для открытия Mini App на конкретной странице (только для админов)"""
+    from ..settings import settings
+    bot_username = getattr(settings, 'bot_username', None)
+    
+    if not bot_username:
+        raise HTTPException(status_code=400, detail="bot_username не настроен")
+    
+    direct_link_name = getattr(settings, 'direct_link_name', 'app')
+    
+    # Формируем параметр startapp
+    if page and model:
+        # Формат: generator_image_nano-banana-pro
+        startapp_param = f"{page}_{model}"
+    elif page:
+        startapp_param = page
+    else:
+        startapp_param = ""
+    
+    if startapp_param:
+        mini_app_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
+    else:
+        mini_app_link = f"https://t.me/{bot_username}/{direct_link_name}"
+    
+    return {
+        "mini_app_link": mini_app_link,
+        "page": page,
+        "model": model,
+        "startapp_param": startapp_param
+    }
+
+
 @router.get("/check-admin")
 async def check_admin(
     user=Depends(get_current_user),
