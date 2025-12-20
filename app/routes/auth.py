@@ -127,34 +127,46 @@ async def get_mini_app_link(
     model: Optional[str] = Query(None, description="Модель для выбора (например: nano-banana-pro)"),
     _: None = Depends(require_admin),
 ):
-    """Получить ссылку для открытия Mini App на конкретной странице (только для админов)"""
+    """Получить ссылку для открытия Mini App на конкретной странице (только для админов)
+    
+    Возвращает два типа ссылок:
+    1. web_app_url - для использования в кнопках web_app (прямой URL Mini App)
+    2. bot_link - для использования в обычных ссылках бота (через startapp)
+    """
     from ..settings import settings
     bot_username = getattr(settings, 'bot_username', None)
+    frontend_url = getattr(settings, 'frontend_url', 'https://iiapp-66742.web.app')
     
-    if not bot_username:
-        raise HTTPException(status_code=400, detail="bot_username не настроен")
-    
-    direct_link_name = getattr(settings, 'direct_link_name', 'app')
-    
-    # Формируем параметр startapp
+    # Формируем прямой URL Mini App для кнопки web_app
     if page and model:
-        # Формат: generator_image_nano-banana-pro
-        startapp_param = f"{page}_{model}"
+        # Формат: /generator/image?model=nano-banana-pro
+        web_app_url = f"{frontend_url}/{page.replace('_', '/')}?model={model}"
     elif page:
-        startapp_param = page
+        web_app_url = f"{frontend_url}/{page.replace('_', '/')}"
     else:
-        startapp_param = ""
+        web_app_url = frontend_url
     
-    if startapp_param:
-        mini_app_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
-    else:
-        mini_app_link = f"https://t.me/{bot_username}/{direct_link_name}"
+    # Формируем ссылку на бота для обычных ссылок (через startapp)
+    bot_link = None
+    if bot_username:
+        direct_link_name = getattr(settings, 'direct_link_name', 'app')
+        if page and model:
+            startapp_param = f"{page}_{model}"
+        elif page:
+            startapp_param = page
+        else:
+            startapp_param = ""
+        
+        if startapp_param:
+            bot_link = f"https://t.me/{bot_username}/{direct_link_name}?startapp={startapp_param}"
+        else:
+            bot_link = f"https://t.me/{bot_username}/{direct_link_name}"
     
     return {
-        "mini_app_link": mini_app_link,
+        "web_app_url": web_app_url,  # Для кнопок web_app в Telegram
+        "bot_link": bot_link,  # Для обычных ссылок через бота
         "page": page,
-        "model": model,
-        "startapp_param": startapp_param
+        "model": model
     }
 
 
