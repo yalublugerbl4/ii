@@ -41,6 +41,8 @@ MIN_BALANCE_REQUIRED = {
     "veo3": 280.0,
     "veo3_fast": 70.0,
     "grok-imagine/text-to-video": 30.0,
+    "kling-2.6-text-to-video": 60.0,  # Минимум для 5 сек без звука
+    "kling-2.6-image-to-video": 60.0,  # Минимум для 5 сек без звука
     "bytedance/v1-pro-fast-image-to-video": 20.0,  # Минимум для 480p + 5 сек
     "sora-2-pro-text-to-video": 150.0,  # Минимум для standard + 10 сек
     "sora-2-pro-image-to-video": 150.0,  # Минимум для standard + 10 сек
@@ -100,6 +102,20 @@ def get_sora_price(model: str, quality: Optional[str], duration: Optional[str]) 
             return SORA_2_PRO_PRICES.get(("standard", duration), 150.0)
         return 150.0
     return 0.0
+
+
+def get_kling_price(duration: Optional[str], sound: Optional[bool]) -> float:
+    """Возвращает цену для Kling 2.6 в зависимости от длительности и звука"""
+    if duration == "5" and not sound:
+        return 60.0
+    elif duration == "5" and sound:
+        return 140.0
+    elif duration == "10" and not sound:
+        return 140.0
+    elif duration == "10" and sound:
+        return 280.0
+    # Дефолтная цена (5 сек без звука)
+    return 60.0
 
 
 def get_generation_price(model: str) -> float:
@@ -206,6 +222,13 @@ async def list_video_models():
             modes=["video"],
             supports_output_format=False,
         ),
+        schemas.ModelInfo(
+            id="kling-2.6-text-to-video",
+            title="Kling 2.6",
+            description="Самая новая модель от Kling с поддержкой звука",
+            modes=["video"],
+            supports_output_format=False,
+        ),
     ]
     return models
 
@@ -223,7 +246,8 @@ async def generate_video(
     enable_translation: Optional[bool] = Form(True),  # Для Veo
     watermark: Optional[str] = Form(None),  # Для Veo
     resolution: Optional[str] = Form(None),  # Для V1 Pro: 480p, 720p, 1080p
-    duration: Optional[str] = Form(None),  # Для V1 Pro: 5, 10
+    duration: Optional[str] = Form(None),  # Для V1 Pro: 5, 10. Для Kling: 5, 10
+    sound: Optional[str] = Form(None),  # Для Kling: true/false
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -344,6 +368,20 @@ async def generate_video(
                 webhook_data["size"] = resolution  # Sora Pro использует size
             if is_sora_image_to_video and final_image_urls:
                 webhook_data["image_urls"] = final_image_urls
+        elif is_kling:
+            # Параметры для Kling 2.6
+            if duration:
+                webhook_data["duration"] = duration
+            if sound is not None:
+                sound_bool = sound.lower() == "true" if isinstance(sound, str) else bool(sound)
+                webhook_data["sound"] = sound_bool
+            if final_image_urls:
+                # Если есть изображения - image-to-video
+                webhook_data["image_urls"] = final_image_urls
+            else:
+                # Если нет изображений - text-to-video, нужен aspect_ratio
+                if aspect_ratio:
+                    webhook_data["aspect_ratio"] = aspect_ratio
         elif is_veo:
             # Параметры для Veo 3.1
             if aspect_ratio:
@@ -412,16 +450,24 @@ async def generate_video(
         # Для Sora передаем resolution и duration
         sora_resolution = resolution if is_sora else None
         sora_duration = duration if is_sora else None
+        # Для Kling передаем duration и sound
+        kling_duration = duration if is_kling else None
+        kling_sound = None
+        if is_kling and sound is not None:
+            kling_sound = sound.lower() == "true" if isinstance(sound, str) else bool(sound)
+        # Для Kling aspect_ratio нужен только для text-to-video
+        kling_aspect_ratio = aspect_ratio if (is_kling and len(final_image_urls) == 0) else None
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
-            aspect_ratio=video_aspect_ratio,
+            aspect_ratio=video_aspect_ratio if not is_kling else kling_aspect_ratio,
             resolution=sora_resolution,
             output_format="mp4",
             quality=None,
             mode=mode,
             image_urls=final_image_urls,
-            duration=sora_duration,
+            duration=sora_duration if is_sora else kling_duration,
+            sound=kling_sound,
         )
         logger.info(f"Payload built, is_gpt4o: {is_gpt4o}")
         

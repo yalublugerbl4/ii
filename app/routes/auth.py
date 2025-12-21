@@ -70,7 +70,7 @@ async def get_me(
                 if referrer:  # Если пригласивший существует
                     referred_by_tgid = r_tgid
         
-        db_user = User(tgid=user.tgid, referred_by=referred_by_tgid)
+        db_user = User(tgid=user.tgid, referred_by=referred_by_tgid, balance=10.0)
         session.add(db_user)
         await session.commit()
         await session.refresh(db_user)
@@ -313,7 +313,7 @@ async def auth_telegram(
     user = result.scalars().first()
     if not user:
         # Создаем пользователя без реферала (реферал будет установлен при первом запросе /auth/me с r_tgid)
-        user = User(tgid=tgid, referred_by=None)
+        user = User(tgid=tgid, referred_by=None, balance=10.0)
         session.add(user)
         await session.commit()
     result = await session.execute(select(Admin).where(Admin.tgid == tgid))

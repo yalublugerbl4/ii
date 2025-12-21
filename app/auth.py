@@ -125,7 +125,7 @@ async def get_current_user(
     user = result.scalars().first()
     if not user:
         # Создаем пользователя, если его нет
-        user = User(tgid=tgid)
+        user = User(tgid=tgid, balance=10.0)
         session.add(user)
         await session.commit()
         await session.refresh(user)

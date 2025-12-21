@@ -309,6 +309,7 @@ async def build_payload_for_model(
     mode: Optional[str] = None,  # Для Grok Imagine: normal, fun, spicy
     image_urls: Optional[Iterable[str]] = None,
     duration: Optional[str] = None,  # Для Sora и V1 Pro: длительность в секундах
+    sound: Optional[bool] = None,  # Для Kling 2.6: наличие звука
 ) -> tuple[Dict[str, Any], bool]:
     """
     Создает payload для модели.
