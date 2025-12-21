@@ -333,13 +333,16 @@ async def generate_video(
                 webhook_data["duration"] = duration
         elif is_sora:
             # Параметры для Sora
+            is_sora_pro = model in ("sora-2-pro-text-to-video", "sora-2-pro-image-to-video")
+            is_sora_image_to_video = model in ("sora-2-pro-image-to-video", "sora-2-image-to-video")
+            
             if aspect_ratio:
                 webhook_data["aspect_ratio"] = aspect_ratio
             if duration:
                 webhook_data["n_frames"] = duration  # Sora использует n_frames
             if resolution and is_sora_pro:
                 webhook_data["size"] = resolution  # Sora Pro использует size
-            if is_sora_image_to_video:
+            if is_sora_image_to_video and final_image_urls:
                 webhook_data["image_urls"] = final_image_urls
         elif is_veo:
             # Параметры для Veo 3.1
