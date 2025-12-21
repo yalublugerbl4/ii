@@ -274,6 +274,7 @@ async def generate_video(
     is_grok = model == "grok-imagine/text-to-video"
     is_v1_pro = model == "bytedance/v1-pro-fast-image-to-video"
     is_sora = model.startswith("sora-") and not model.endswith("storyboard")
+    is_kling = model.startswith("kling-2.6")
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
