@@ -273,7 +273,13 @@ async def generate_video(
             "template_id": None,
         }
         
-        if is_veo:
+        if is_v1_pro:
+            # Параметры для Seedance V1 Pro
+            if resolution:
+                webhook_data["resolution"] = resolution
+            if duration:
+                webhook_data["duration"] = duration
+        elif is_veo:
             # Параметры для Veo 3.1
             if aspect_ratio:
                 webhook_data["aspect_ratio"] = aspect_ratio
