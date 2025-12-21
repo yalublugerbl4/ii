@@ -308,6 +308,7 @@ async def build_payload_for_model(
     quality: Optional[str] = None,  # Для Seedream 4.5: basic или high
     mode: Optional[str] = None,  # Для Grok Imagine: normal, fun, spicy
     image_urls: Optional[Iterable[str]] = None,
+    duration: Optional[str] = None,  # Для Sora и V1 Pro: длительность в секундах
 ) -> tuple[Dict[str, Any], bool]:
     """
     Создает payload для модели.
@@ -523,6 +524,140 @@ async def build_payload_for_model(
             payload_input["resolution"] = resolution  # 480p, 720p, 1080p
         if duration:
             payload_input["duration"] = duration  # 5, 10
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
+    elif model == "sora-2-pro-text-to-video":
+        # Sora 2 Pro Text To Video - по документации API
+        payload_input = {
+            "prompt": prompt[:10000],  # Макс 10000 по документации
+            "remove_watermark": True,
+        }
+        # aspect_ratio: portrait или landscape
+        if aspect_ratio:
+            # Маппинг: 16:9, 9:16 -> landscape/portrait
+            if aspect_ratio in ["16:9", "3:2"]:
+                payload_input["aspect_ratio"] = "landscape"
+            elif aspect_ratio in ["9:16", "2:3"]:
+                payload_input["aspect_ratio"] = "portrait"
+            else:
+                payload_input["aspect_ratio"] = "landscape"  # default
+        else:
+            payload_input["aspect_ratio"] = "landscape"
+        # n_frames: "10" или "15" (длительность в секундах)
+        if duration:
+            payload_input["n_frames"] = duration  # "10" или "15"
+        else:
+            payload_input["n_frames"] = "10"  # default
+        # size: "standard" или "high"
+        if resolution:
+            payload_input["size"] = resolution  # "standard" или "high"
+        else:
+            payload_input["size"] = "high"  # default
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
+    elif model == "sora-2-pro-image-to-video":
+        # Sora 2 Pro Image To Video - по документации API
+        payload_input = {
+            "prompt": prompt[:10000],  # Макс 10000 по документации
+            "remove_watermark": True,
+        }
+        if image_urls_list:
+            payload_input["image_urls"] = image_urls_list
+        # aspect_ratio: portrait или landscape
+        if aspect_ratio:
+            if aspect_ratio in ["16:9", "3:2"]:
+                payload_input["aspect_ratio"] = "landscape"
+            elif aspect_ratio in ["9:16", "2:3"]:
+                payload_input["aspect_ratio"] = "portrait"
+            else:
+                payload_input["aspect_ratio"] = "landscape"
+        else:
+            payload_input["aspect_ratio"] = "landscape"
+        # n_frames: "10" или "15"
+        if duration:
+            payload_input["n_frames"] = duration
+        else:
+            payload_input["n_frames"] = "10"
+        # size: "standard" или "high"
+        if resolution:
+            payload_input["size"] = resolution
+        else:
+            payload_input["size"] = "standard"  # default для image-to-video
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
+    elif model == "sora-2-text-to-video":
+        # Sora 2 Text To Video - по документации API
+        payload_input = {
+            "prompt": prompt[:10000],
+            "remove_watermark": True,
+        }
+        if aspect_ratio:
+            if aspect_ratio in ["16:9", "3:2"]:
+                payload_input["aspect_ratio"] = "landscape"
+            elif aspect_ratio in ["9:16", "2:3"]:
+                payload_input["aspect_ratio"] = "portrait"
+            else:
+                payload_input["aspect_ratio"] = "landscape"
+        else:
+            payload_input["aspect_ratio"] = "landscape"
+        if duration:
+            payload_input["n_frames"] = duration
+        else:
+            payload_input["n_frames"] = "10"
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
+    elif model == "sora-2-image-to-video":
+        # Sora 2 Image To Video - по документации API
+        payload_input = {
+            "prompt": prompt[:10000],
+            "remove_watermark": True,
+        }
+        if image_urls_list:
+            payload_input["image_urls"] = image_urls_list
+        if aspect_ratio:
+            if aspect_ratio in ["16:9", "3:2"]:
+                payload_input["aspect_ratio"] = "landscape"
+            elif aspect_ratio in ["9:16", "2:3"]:
+                payload_input["aspect_ratio"] = "portrait"
+            else:
+                payload_input["aspect_ratio"] = "landscape"
+        else:
+            payload_input["aspect_ratio"] = "landscape"
+        if duration:
+            payload_input["n_frames"] = duration
+        else:
+            payload_input["n_frames"] = "10"
+        payload = {
+            "model": model,
+            "input": payload_input,
+        }
+    elif model == "sora-2-pro-storyboard":
+        # Sora 2 Pro Storyboard - по документации API
+        payload_input = {}
+        # n_frames: "10", "15" или "25"
+        if duration:
+            payload_input["n_frames"] = duration
+        else:
+            payload_input["n_frames"] = "15"  # default
+        if image_urls_list:
+            payload_input["image_urls"] = image_urls_list
+        if aspect_ratio:
+            if aspect_ratio in ["16:9", "3:2"]:
+                payload_input["aspect_ratio"] = "landscape"
+            elif aspect_ratio in ["9:16", "2:3"]:
+                payload_input["aspect_ratio"] = "portrait"
+            else:
+                payload_input["aspect_ratio"] = "landscape"
+        else:
+            payload_input["aspect_ratio"] = "landscape"
         payload = {
             "model": model,
             "input": payload_input,

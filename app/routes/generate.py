@@ -42,6 +42,11 @@ MIN_BALANCE_REQUIRED = {
     "veo3_fast": 70.0,
     "grok-imagine/text-to-video": 30.0,
     "bytedance/v1-pro-fast-image-to-video": 20.0,  # Минимум для 480p + 5 сек
+    "sora-2-pro-text-to-video": 50.0,  # Sora 2 Pro Text to Video
+    "sora-2-pro-image-to-video": 50.0,  # Sora 2 Pro Image to Video
+    "sora-2-text-to-video": 50.0,  # Sora 2 Text to Video
+    "sora-2-image-to-video": 50.0,  # Sora 2 Image to Video
+    "sora-2-pro-storyboard": 50.0,  # Sora 2 Pro Storyboard
     "seedream/4.5-text-to-image": 10.0,
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,
@@ -151,6 +156,13 @@ async def list_video_models():
             id="bytedance/v1-pro-fast-image-to-video",
             title="Seedance V1 Pro",
             description="Быстрая высококачественная генерация",
+            modes=["video"],
+            supports_output_format=False,
+        ),
+        schemas.ModelInfo(
+            id="sora-2-pro-text-to-video",
+            title="Sora 2 Pro",
+            description="Высококачественная генерация видео от OpenAI",
             modes=["video"],
             supports_output_format=False,
         ),
@@ -320,17 +332,25 @@ async def generate_video(
     # Старая логика через KIE (если вебхуки не настроены)
     try:
         logger.info(f"Building payload for video model: {model}, prompt length: {len(prompt)}, image_urls count: {len(final_image_urls)}")
-        # aspect_ratio передаем только если нет фото (text-to-video)
-        video_aspect_ratio = aspect_ratio if len(final_image_urls) == 0 else None
+        # aspect_ratio передаем только если нет фото (text-to-video), кроме Sora
+        if is_sora:
+            # Для Sora aspect_ratio передаем всегда
+            video_aspect_ratio = aspect_ratio
+        else:
+            video_aspect_ratio = aspect_ratio if len(final_image_urls) == 0 else None
+        # Для Sora передаем resolution и duration
+        sora_resolution = resolution if is_sora else None
+        sora_duration = duration if is_sora else None
         payload, is_gpt4o = await build_payload_for_model(
             model=model,
             prompt=prompt,
             aspect_ratio=video_aspect_ratio,
-            resolution=None,
+            resolution=sora_resolution,
             output_format="mp4",
             quality=None,
             mode=mode,
             image_urls=final_image_urls,
+            duration=sora_duration,
         )
         logger.info(f"Payload built, is_gpt4o: {is_gpt4o}")
         
