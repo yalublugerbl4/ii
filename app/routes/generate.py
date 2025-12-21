@@ -42,11 +42,10 @@ MIN_BALANCE_REQUIRED = {
     "veo3_fast": 70.0,
     "grok-imagine/text-to-video": 30.0,
     "bytedance/v1-pro-fast-image-to-video": 20.0,  # Минимум для 480p + 5 сек
-    "sora-2-pro-text-to-video": 50.0,  # Sora 2 Pro Text to Video
-    "sora-2-pro-image-to-video": 50.0,  # Sora 2 Pro Image to Video
-    "sora-2-text-to-video": 50.0,  # Sora 2 Text to Video
-    "sora-2-image-to-video": 50.0,  # Sora 2 Image to Video
-    "sora-2-pro-storyboard": 50.0,  # Sora 2 Pro Storyboard
+    "sora-2-pro-text-to-video": 150.0,  # Минимум для standard + 10 сек
+    "sora-2-pro-image-to-video": 150.0,  # Минимум для standard + 10 сек
+    "sora-2-text-to-video": 30.0,  # Минимум для 10 сек
+    "sora-2-image-to-video": 30.0,  # Минимум для 10 сек
     "seedream/4.5-text-to-image": 10.0,
     "google/nano-banana-edit": 5.0,
     "google/nano-banana": 5.0,
@@ -67,6 +66,40 @@ V1_PRO_PRICES = {
 def get_v1_pro_price(resolution: str, duration: str) -> float:
     """Возвращает цену для V1 Pro Fast в зависимости от разрешения и длительности"""
     return V1_PRO_PRICES.get((resolution, duration), 20.0)
+
+# Цены для Sora 2 (обычная) в зависимости от длительности
+SORA_2_PRICES = {
+    "10": 30.0,
+    "15": 40.0,
+}
+
+# Цены для Sora 2 Pro в зависимости от качества и длительности
+SORA_2_PRO_PRICES = {
+    ("standard", "10"): 150.0,
+    ("standard", "15"): 190.0,
+    ("high", "10"): 250.0,
+    ("high", "15"): 500.0,
+}
+
+def get_sora_price(model: str, quality: Optional[str], duration: Optional[str]) -> float:
+    """Возвращает цену для Sora в зависимости от модели, качества и длительности"""
+    if model in ("sora-2-text-to-video", "sora-2-image-to-video"):
+        # Sora 2 (обычная) - только длительность
+        if duration:
+            return SORA_2_PRICES.get(duration, 30.0)
+        return 30.0
+    elif model in ("sora-2-pro-text-to-video", "sora-2-pro-image-to-video"):
+        # Sora 2 Pro - качество и длительность
+        if quality and duration:
+            return SORA_2_PRO_PRICES.get((quality, duration), 150.0)
+        elif quality:
+            # Если нет длительности, берем минимальную цену для этого качества
+            return SORA_2_PRO_PRICES.get((quality, "10"), 150.0)
+        elif duration:
+            # Если нет качества, берем стандартное
+            return SORA_2_PRO_PRICES.get(("standard", duration), 150.0)
+        return 150.0
+    return 0.0
 
 
 def get_generation_price(model: str) -> float:
@@ -173,13 +206,6 @@ async def list_video_models():
             modes=["video"],
             supports_output_format=False,
         ),
-        schemas.ModelInfo(
-            id="sora-2-pro-storyboard",
-            title="Sora 2 Pro Storyboard",
-            description="Создание storyboard из изображений",
-            modes=["video"],
-            supports_output_format=False,
-        ),
     ]
     return models
 
@@ -223,6 +249,7 @@ async def generate_video(
     is_veo = model in ("veo3", "veo3_fast")
     is_grok = model == "grok-imagine/text-to-video"
     is_v1_pro = model == "bytedance/v1-pro-fast-image-to-video"
+    is_sora = model.startswith("sora-") and not model.endswith("storyboard")
     
     # Используем переданные image_urls или загружаем файлы
     final_image_urls: list[str] = []
@@ -253,6 +280,17 @@ async def generate_video(
         if not resolution or not duration:
             raise HTTPException(status_code=400, detail="Для V1 Pro необходимо указать разрешение и длительность")
         required_balance = get_v1_pro_price(resolution, duration)
+    elif is_sora:
+        # Для Sora проверяем баланс на основе модели, качества и длительности
+        if not duration:
+            raise HTTPException(status_code=400, detail="Для Sora необходимо указать длительность")
+        # Для Sora 2 Pro также нужно качество (resolution используется как quality для Sora Pro)
+        if model in ("sora-2-pro-text-to-video", "sora-2-pro-image-to-video"):
+            if not resolution:
+                raise HTTPException(status_code=400, detail="Для Sora 2 Pro необходимо указать качество")
+            required_balance = get_sora_price(model, resolution, duration)
+        else:
+            required_balance = get_sora_price(model, None, duration)
     else:
         required_balance = get_min_balance_required(model)
     

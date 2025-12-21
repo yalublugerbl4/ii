@@ -639,29 +639,6 @@ async def build_payload_for_model(
             "model": model,
             "input": payload_input,
         }
-    elif model == "sora-2-pro-storyboard":
-        # Sora 2 Pro Storyboard - по документации API
-        payload_input = {}
-        # n_frames: "10", "15" или "25"
-        if duration:
-            payload_input["n_frames"] = duration
-        else:
-            payload_input["n_frames"] = "15"  # default
-        if image_urls_list:
-            payload_input["image_urls"] = image_urls_list
-        if aspect_ratio:
-            if aspect_ratio in ["16:9", "3:2"]:
-                payload_input["aspect_ratio"] = "landscape"
-            elif aspect_ratio in ["9:16", "2:3"]:
-                payload_input["aspect_ratio"] = "portrait"
-            else:
-                payload_input["aspect_ratio"] = "landscape"
-        else:
-            payload_input["aspect_ratio"] = "landscape"
-        payload = {
-            "model": model,
-            "input": payload_input,
-        }
     else:
         # Fallback для неизвестных моделей
         payload = {
