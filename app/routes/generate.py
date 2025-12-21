@@ -166,6 +166,20 @@ async def list_video_models():
             modes=["video"],
             supports_output_format=False,
         ),
+        schemas.ModelInfo(
+            id="sora-2-text-to-video",
+            title="Sora 2",
+            description="Высококачественная генерация видео от OpenAI",
+            modes=["video"],
+            supports_output_format=False,
+        ),
+        schemas.ModelInfo(
+            id="sora-2-pro-storyboard",
+            title="Sora 2 Pro Storyboard",
+            description="Создание storyboard из изображений",
+            modes=["video"],
+            supports_output_format=False,
+        ),
     ]
     return models
 
