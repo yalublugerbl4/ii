@@ -129,6 +129,11 @@ async def get_current_user(
         session.add(user)
         await session.commit()
         await session.refresh(user)
+    
+    # Проверяем, не забанен ли пользователь
+    if user.banned:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is banned")
+    
     return user
 
 

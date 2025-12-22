@@ -372,3 +372,89 @@ async def add_admin(
     
     return {"message": "Admin added successfully", "tgid": body.tgid}
 
+
+# Админ панель эндпоинты
+class AdminGetUserRequest(BaseModel):
+    tgid: int
+
+
+class AdminUpdateBalanceRequest(BaseModel):
+    tgid: int
+    balance_change: float  # Может быть положительным или отрицательным
+
+
+class AdminBanUserRequest(BaseModel):
+    tgid: int
+    banned: bool
+
+
+@router.get("/admin/user/{tgid}")
+async def admin_get_user(
+    tgid: int,
+    admin_user=Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Получить информацию о пользователе по Telegram ID (только для админов)"""
+    result = await session.execute(select(User).where(User.tgid == tgid))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "tgid": user.tgid,
+        "balance": float(user.balance),
+        "email": user.email,
+        "banned": user.banned,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
+@router.post("/admin/update-balance")
+async def admin_update_balance(
+    body: AdminUpdateBalanceRequest,
+    admin_user=Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Изменить баланс пользователя (только для админов)"""
+    result = await session.execute(select(User).where(User.tgid == body.tgid))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Обновляем баланс
+    new_balance = float(user.balance) + body.balance_change
+    if new_balance < 0:
+        raise HTTPException(status_code=400, detail="Balance cannot be negative")
+    
+    user.balance = new_balance
+    await session.commit()
+    await session.refresh(user)
+    
+    return {
+        "tgid": user.tgid,
+        "balance": float(user.balance),
+        "balance_change": body.balance_change,
+    }
+
+
+@router.post("/admin/ban-user")
+async def admin_ban_user(
+    body: AdminBanUserRequest,
+    admin_user=Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Забанить или разбанить пользователя (только для админов)"""
+    result = await session.execute(select(User).where(User.tgid == body.tgid))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.banned = body.banned
+    await session.commit()
+    await session.refresh(user)
+    
+    return {
+        "tgid": user.tgid,
+        "banned": user.banned,
+    }
+

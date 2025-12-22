@@ -16,6 +16,7 @@ class User(Base):
     balance = Column(Numeric(10, 2), default=0.0, nullable=False)
     email = Column(String(255), nullable=True)
     referred_by = Column(BigInteger, ForeignKey("users.tgid"), nullable=True, index=True)
+    banned = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
