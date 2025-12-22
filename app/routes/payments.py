@@ -208,6 +208,10 @@ async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get
         if db_user:
             db_user.balance = float(db_user.balance) + float(payment.tokens)
             
+            # Отправляем вебхук о пополнении (всегда, даже без реферала)
+            referral_bonus = 0.0
+            referrer_tgid = None
+            
             # Если пользователь был приглашен рефералом, начисляем 10% админу
             if db_user.referred_by:
                 referral_bonus = float(payment.tokens) * 0.1  # 10% от пополнения
@@ -215,24 +219,25 @@ async def yookassa_webhook(request: Request, session: AsyncSession = Depends(get
                 referrer = result.scalars().first()
                 if referrer:
                     referrer.balance = float(referrer.balance) + referral_bonus
+                    referrer_tgid = referrer.tgid
                     
-                    # Отправляем вебхук о пополнении реферала
-                    if settings.ref_webhook_url:
-                        try:
-                            async with httpx.AsyncClient(timeout=5.0) as client:
-                                await client.post(
-                                    settings.ref_webhook_url,
-                                    json={
-                                        "referrer_tgid": referrer.tgid,
-                                        "referral_tgid": db_user.tgid,
-                                        "payment_amount": float(payment.amount),
-                                        "payment_tokens": float(payment.tokens),
-                                        "referral_bonus": referral_bonus,
-                                        "payment_id": str(payment.id),
-                                    }
-                                )
-                        except Exception as e:
-                            logger.error(f"Failed to send referral webhook: {e}")
+            # Отправляем вебхук о пополнении (всегда)
+            if settings.ref_webhook_url:
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        await client.post(
+                            settings.ref_webhook_url,
+                            json={
+                                "referrer_tgid": referrer_tgid,
+                                "referral_tgid": db_user.tgid,
+                                "payment_amount": float(payment.amount),
+                                "payment_tokens": float(payment.tokens),
+                                "referral_bonus": referral_bonus,
+                                "payment_id": str(payment.id),
+                            }
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to send referral webhook: {e}")
         
         await session.commit()
     except Exception as e:
@@ -277,6 +282,10 @@ async def get_payment_status(
                 if db_user:
                     db_user.balance = float(db_user.balance) + float(payment.tokens)
                     
+                    # Отправляем вебхук о пополнении (всегда, даже без реферала)
+                    referral_bonus = 0.0
+                    referrer_tgid = None
+                    
                     # Если пользователь был приглашен рефералом, начисляем 10% админу
                     if db_user.referred_by:
                         referral_bonus = float(payment.tokens) * 0.1  # 10% от пополнения
@@ -284,24 +293,25 @@ async def get_payment_status(
                         referrer = result.scalars().first()
                         if referrer:
                             referrer.balance = float(referrer.balance) + referral_bonus
+                            referrer_tgid = referrer.tgid
                             
-                            # Отправляем вебхук о пополнении реферала
-                            if settings.ref_webhook_url:
-                                try:
-                                    async with httpx.AsyncClient(timeout=5.0) as client:
-                                        await client.post(
-                                            settings.ref_webhook_url,
-                                            json={
-                                                "referrer_tgid": referrer.tgid,
-                                                "referral_tgid": db_user.tgid,
-                                                "payment_amount": float(payment.amount),
-                                                "payment_tokens": float(payment.tokens),
-                                                "referral_bonus": referral_bonus,
-                                                "payment_id": str(payment.id),
-                                            }
-                                        )
-                                except Exception as e:
-                                    logger.error(f"Failed to send referral webhook: {e}")
+                    # Отправляем вебхук о пополнении (всегда)
+                    if settings.ref_webhook_url:
+                        try:
+                            async with httpx.AsyncClient(timeout=5.0) as client:
+                                await client.post(
+                                    settings.ref_webhook_url,
+                                    json={
+                                        "referrer_tgid": referrer_tgid,
+                                        "referral_tgid": db_user.tgid,
+                                        "payment_amount": float(payment.amount),
+                                        "payment_tokens": float(payment.tokens),
+                                        "referral_bonus": referral_bonus,
+                                        "payment_id": str(payment.id),
+                                    }
+                                )
+                        except Exception as e:
+                            logger.error(f"Failed to send referral webhook: {e}")
                 
                 await session.commit()
         except Exception:
